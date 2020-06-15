@@ -248,4 +248,9 @@ output "calico_values" {
   value     = module.aws-{{.Config.ClusterName}}.calico_values
   sensitive = true
 }
+
+output "kubeconfig" {
+  value     = module.aws-{{.Config.ClusterName}}.kubeconfig-admin
+  sensitive = true
+}
 `

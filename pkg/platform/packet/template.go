@@ -332,4 +332,9 @@ output "calico_values" {
   value     = module.packet-{{.Config.ClusterName}}.calico_values
   sensitive = true
 }
+
+output "kubeconfig" {
+  value     = module.packet-{{.Config.ClusterName}}.kubeconfig-admin
+  sensitive = true
+}
 `

@@ -130,4 +130,9 @@ output "calico_values" {
   value     = module.bare-metal-{{.ClusterName}}.calico_values
   sensitive = true
 }
+
+output "kubeconfig" {
+  value     = module.bare-metal-{{.ClusterName}}.kubeconfig-admin
+  sensitive = true
+}
 `
