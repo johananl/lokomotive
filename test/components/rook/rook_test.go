@@ -24,6 +24,10 @@ import (
 	testutil "github.com/kinvolk/lokomotive/test/components/util"
 )
 
+const (
+	namespace = "rook"
+)
+
 func TestRookDeployment(t *testing.T) {
 	namespace := "rook"
 
@@ -35,4 +39,14 @@ func TestRookDeployment(t *testing.T) {
 
 		testutil.WaitForDeployment(t, client, namespace, deployment, time.Second*5, time.Minute*5)
 	})
+}
+
+func TestNamespaceHasLabels(t *testing.T) {
+	client := testutil.CreateKubeClient(t)
+
+	labels := map[string]string{
+		"lokomotive.kinvolk.io/name": namespace,
+	}
+
+	testutil.IsLabelPresentInNamespace(t, client, namespace, labels, time.Second*5, time.Minute*5)
 }

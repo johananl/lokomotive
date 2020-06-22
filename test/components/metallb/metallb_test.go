@@ -24,9 +24,11 @@ import (
 	testutil "github.com/kinvolk/lokomotive/test/components/util"
 )
 
-func TestMetalLBDeployment(t *testing.T) {
-	namespace := "metallb-system"
+const (
+	namespace = "metallb-system"
+)
 
+func TestMetalLBDeployment(t *testing.T) {
 	client := testutil.CreateKubeClient(t)
 
 	t.Run("speaker daemonset", func(t *testing.T) {
@@ -42,4 +44,14 @@ func TestMetalLBDeployment(t *testing.T) {
 
 		testutil.WaitForDeployment(t, client, namespace, deployment, time.Second*5, time.Minute*5)
 	})
+}
+
+func TestNamespaceHasLabels(t *testing.T) {
+	client := testutil.CreateKubeClient(t)
+
+	labels := map[string]string{
+		"lokomotive.kinvolk.io/name": namespace,
+	}
+
+	testutil.IsLabelPresentInNamespace(t, client, namespace, labels, time.Second*5, time.Minute*5)
 }

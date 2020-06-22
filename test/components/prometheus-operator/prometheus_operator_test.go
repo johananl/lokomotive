@@ -163,3 +163,13 @@ func TestGrafanaLoadsEnvVars(t *testing.T) {
 		t.Fatalf("required env var %q not found in following env vars:\n\n%s\n", searchEnvVar, containerOutput)
 	}
 }
+
+func TestNamespaceHasLabels(t *testing.T) {
+	client := testutil.CreateKubeClient(t)
+
+	labels := map[string]string{
+		"lokomotive.kinvolk.io/name": namespace,
+	}
+
+	testutil.IsLabelPresentInNamespace(t, client, namespace, labels, time.Second*5, time.Minute*5)
+}

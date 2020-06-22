@@ -24,9 +24,11 @@ import (
 	testutil "github.com/kinvolk/lokomotive/test/components/util"
 )
 
-func TestGangwayDeployment(t *testing.T) {
-	namespace := "gangway"
+const (
+	namespace = "gangway"
+)
 
+func TestGangwayDeployment(t *testing.T) {
 	client := testutil.CreateKubeClient(t)
 
 	t.Run("deployment", func(t *testing.T) {
@@ -35,4 +37,14 @@ func TestGangwayDeployment(t *testing.T) {
 
 		testutil.WaitForDeployment(t, client, namespace, deployment, time.Second*5, time.Minute*5)
 	})
+}
+
+func TestNamespaceHasLabels(t *testing.T) {
+	client := testutil.CreateKubeClient(t)
+
+	labels := map[string]string{
+		"lokomotive.kinvolk.io/name": namespace,
+	}
+
+	testutil.IsLabelPresentInNamespace(t, client, namespace, labels, time.Second*5, time.Minute*5)
 }

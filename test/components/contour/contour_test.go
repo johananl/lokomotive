@@ -24,9 +24,12 @@ import (
 	testutil "github.com/kinvolk/lokomotive/test/components/util"
 )
 
+const (
+	namespace = "projectcontour"
+)
+
 func TestEnvoyDaemonset(t *testing.T) {
 	t.Parallel()
-	namespace := "projectcontour"
 	daemonset := "envoy"
 
 	client := testutil.CreateKubeClient(t)
@@ -42,4 +45,14 @@ func TestContourDeployment(t *testing.T) {
 	client := testutil.CreateKubeClient(t)
 
 	testutil.WaitForDeployment(t, client, namespace, deployment, time.Second*5, time.Minute*5)
+}
+
+func TestNamespaceHasLabels(t *testing.T) {
+	client := testutil.CreateKubeClient(t)
+
+	labels := map[string]string{
+		"lokomotive.kinvolk.io/name": namespace,
+	}
+
+	testutil.IsLabelPresentInNamespace(t, client, namespace, labels, time.Second*5, time.Minute*5)
 }

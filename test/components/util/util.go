@@ -126,6 +126,49 @@ func WaitForDaemonSet(t *testing.T, client kubernetes.Interface, ns, name string
 	}
 }
 
+// IsLabelPresentInNamespace tests whether the given labels are present in the namespace.
+func IsLabelPresentInNamespace(
+	t *testing.T,
+	client kubernetes.Interface,
+	ns string,
+	labels map[string]string,
+	retryInterval,
+	timeout time.Duration,
+) {
+	var err error
+
+	var namespace *corev1.Namespace
+
+	if err = wait.PollImmediate(retryInterval, timeout, func() (done bool, err error) {
+		namespace, err = client.CoreV1().Namespaces().Get(context.TODO(), ns, metav1.GetOptions{})
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				t.Logf("waiting for namespace %s to be available", ns)
+
+				return false, nil
+			}
+
+			return false, err
+		}
+
+		for expectedKey, expectedValue := range labels {
+			value, ok := namespace.ObjectMeta.Labels[expectedKey]
+			if !ok {
+				t.Errorf("expected key '%s' not found", expectedKey)
+			}
+
+			if expectedValue != value {
+				t.Errorf("expected value '%s' for key '%s', got '%s'", expectedValue, expectedKey, value)
+			}
+		}
+
+		return true, nil
+	}); err != nil {
+		t.Errorf("error while waiting for namespace: %v", err)
+		return
+	}
+}
+
 func WaitForDeployment(t *testing.T, client kubernetes.Interface, ns, name string, retryInterval, timeout time.Duration) {
 	var err error
 	var deploy *appsv1.Deployment
