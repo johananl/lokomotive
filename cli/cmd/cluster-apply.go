@@ -57,7 +57,7 @@ func runClusterApply(cmd *cobra.Command, args []string) {
 		"args":    args,
 	})
 
-	ex, p, lokoConfig, assetDir := initialize(ctxLogger)
+	ex, p, lokoConfig, assetDir := initialize(ctxLogger, true)
 
 	exists := clusterExists(ctxLogger, ex)
 	if exists && !confirm {
@@ -79,7 +79,7 @@ func runClusterApply(cmd *cobra.Command, args []string) {
 
 	fmt.Printf("\nYour configurations are stored in %s\n", assetDir)
 
-	kubeconfig, err := getKubeconfig()
+	kubeconfig, err := getKubeconfig(p, ex)
 	if err != nil {
 		ctxLogger.Fatalf("Failed to get kubeconfig: %v", err)
 	}

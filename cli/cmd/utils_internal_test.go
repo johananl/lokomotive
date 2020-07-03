@@ -85,7 +85,7 @@ func TestGetKubeconfigBadConfig(t *testing.T) {
 
 	prepareKubeconfigSource(t, k)
 
-	kubeconfig, err := getKubeconfig()
+	kubeconfig, err := getKubeconfig(nil, nil)
 	if err == nil {
 		t.Errorf("getting kubeconfig with bad configuration should fail")
 	}
@@ -113,7 +113,7 @@ func TestGetKubeconfig(t *testing.T) {
 
 	prepareKubeconfigSource(t, k)
 
-	kubeconfig, err := getKubeconfig()
+	kubeconfig, err := getKubeconfig(nil, nil)
 	if err != nil {
 		t.Fatalf("getting kubeconfig: %v", err)
 	}
@@ -151,7 +151,7 @@ func TestGetKubeconfigPathFlag(t *testing.T) {
 
 	prepareKubeconfigSource(t, k)
 
-	kubeconfig, err := getKubeconfigPath()
+	kubeconfig, err := getKubeconfig(nil, nil)
 	if err != nil {
 		t.Fatalf("getting kubeconfig: %v", err)
 	}

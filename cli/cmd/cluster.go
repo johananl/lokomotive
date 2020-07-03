@@ -45,13 +45,13 @@ func init() {
 
 // initialize does common initialization actions between cluster operations
 // and returns created objects to the caller for further use.
-func initialize(ctxLogger *logrus.Entry) (*terraform.Executor, platform.Platform, *config.Config, string) {
+func initialize(ctxLogger *logrus.Entry, requirePlatform bool) (*terraform.Executor, platform.Platform, *config.Config, string) {
 	lokoConfig, diags := getLokoConfig()
 	if len(diags) > 0 {
 		ctxLogger.Fatal(diags)
 	}
 
-	p, diags := getConfiguredPlatform()
+	p, diags := getConfiguredPlatform(lokoConfig)
 	if diags.HasErrors() {
 		for _, diagnostic := range diags {
 			ctxLogger.Error(diagnostic.Error())
@@ -61,7 +61,11 @@ func initialize(ctxLogger *logrus.Entry) (*terraform.Executor, platform.Platform
 	}
 
 	if p == nil {
-		ctxLogger.Fatal("No cluster configured")
+		if requirePlatform {
+			ctxLogger.Fatal("No cluster configured")
+		}
+
+		return nil, nil, nil, ""
 	}
 
 	// Get the configured backend for the cluster. Backend types currently supported: local, s3.

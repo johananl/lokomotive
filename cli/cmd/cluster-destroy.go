@@ -40,7 +40,7 @@ func runClusterDestroy(cmd *cobra.Command, args []string) {
 		"args":    args,
 	})
 
-	ex, p, _, _ := initialize(ctxLogger)
+	ex, p, _, _ := initialize(ctxLogger, true)
 
 	if !clusterExists(ctxLogger, ex) {
 		ctxLogger.Println("Cluster already destroyed, nothing to do")

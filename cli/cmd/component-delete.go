@@ -23,6 +23,8 @@ import (
 
 	"github.com/kinvolk/lokomotive/pkg/components"
 	"github.com/kinvolk/lokomotive/pkg/components/util"
+	"github.com/kinvolk/lokomotive/pkg/platform"
+	"github.com/kinvolk/lokomotive/pkg/terraform"
 )
 
 var componentDeleteCmd = &cobra.Command{
@@ -86,7 +88,10 @@ func runDelete(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	kubeconfig, err := getKubeconfig()
+	var ex *terraform.Executor
+	var p platform.Platform
+
+	kubeconfig, err := getKubeconfig(p, ex)
 	if err != nil {
 		contextLogger.Fatalf("Error in finding kubeconfig file: %s", err)
 	}
