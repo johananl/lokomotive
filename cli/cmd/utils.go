@@ -15,14 +15,22 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
+
+	appsv1 "k8s.io/api/apps/v1"
+	k8serrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/mitchellh/go-homedir"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/kinvolk/lokomotive/pkg/backend"
 	"github.com/kinvolk/lokomotive/pkg/config"
@@ -187,4 +195,39 @@ func askForConfirmation(message string) bool {
 	fmt.Printf("%s [type \"yes\" to continue]: ", message)
 	fmt.Scanln(&input)
 	return input == "yes"
+}
+
+func waitForDeployment(cs *kubernetes.Clientset, ns, name string, retryInterval, timeout time.Duration) {
+	var err error
+
+	var deploy *appsv1.Deployment
+
+	// Check the readiness of the Deployment
+	if err = wait.PollImmediate(retryInterval, timeout, func() (done bool, err error) {
+		deploy, err = cs.AppsV1().Deployments(ns).Get(context.TODO(), name, metav1.GetOptions{})
+		if err != nil {
+			if k8serrors.IsNotFound(err) {
+				fmt.Printf("waiting for deployment %s to be available", name)
+				return false, nil
+			}
+			return false, err
+		}
+
+		replicas := int(deploy.Status.Replicas)
+
+		if replicas == 0 {
+			fmt.Printf("\nno replicas scheduled for deployment %s\n", name)
+			return false, nil
+		}
+
+		if int(deploy.Status.AvailableReplicas) == replicas {
+			fmt.Println("Admission Webhook applied successfully")
+			return true, nil
+		}
+
+		return false, nil
+	}); err != nil {
+		fmt.Printf("error while waiting for the deployment: %v", err)
+		return
+	}
 }

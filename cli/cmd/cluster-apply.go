@@ -17,11 +17,14 @@ package cmd
 import (
 	"fmt"
 	"io/ioutil"
+	"path/filepath"
+	"time"
 
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 
+	"github.com/kinvolk/lokomotive/pkg/components/util"
 	"github.com/kinvolk/lokomotive/pkg/install"
 	"github.com/kinvolk/lokomotive/pkg/k8sutil"
 	"github.com/kinvolk/lokomotive/pkg/lokomotive"
@@ -107,6 +110,18 @@ func runClusterApply(cmd *cobra.Command, args []string) {
 		}
 	}
 
+	kubeconfigAbsoutePath, _ := filepath.Abs(kubeconfigPath)
+
+	ctxLogger.Println("Applying admission webhook configuration")
+
+	if err := util.RunAdmissionWebhook(kubeconfigAbsoutePath); err != nil {
+		ctxLogger.Fatalf("Applying admission webhook failed: %v", err)
+	}
+
+	if err := verifyAdmissionWebhook(kubeconfigPath); err != nil {
+		ctxLogger.Fatalf("Verifying admission webhook failed: %v", err)
+	}
+
 	if skipComponents {
 		return
 	}
@@ -142,4 +157,21 @@ func verifyCluster(kubeconfigPath string, expectedNodes int) error {
 	}
 
 	return install.Verify(cluster)
+}
+
+func verifyAdmissionWebhook(kubeconfigPath string) error {
+	kubeconfig, err := ioutil.ReadFile(kubeconfigPath) // #nosec G304
+	if err != nil {
+		return errors.Wrapf(err, "failed to read kubeconfig file")
+	}
+
+	cs, err := k8sutil.NewClientset(kubeconfig)
+	if err != nil {
+		return errors.Wrapf(err, "failed to set up clientset")
+	}
+
+	// nolint:gomnd
+	waitForDeployment(cs, "default", "mutating", time.Second*5, time.Minute*5)
+
+	return nil
 }
