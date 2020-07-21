@@ -215,11 +215,7 @@ func chartFromManifests(name string, manifests map[string]string) (*chart.Chart,
 			Name: p,
 		}
 
-		// Apply rendered manifests to Manifests slice, which does not run through the rendering engine
-		// again when the chart is being installed. This is required, as some charts use complex escaping
-		// syntax, which breaks if the templates are evaluated twice. This, for example, breaks
-		// the prometheus-operator chart.
-		ch.Manifests = append(ch.Manifests, f)
+		ch.Templates = append(ch.Templates, f)
 	}
 
 	// If we collected any CRDs, put them in the special file in the dedicated crds/ directory.
