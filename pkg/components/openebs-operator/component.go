@@ -23,6 +23,7 @@ import (
 	"github.com/kinvolk/lokomotive/internal/template"
 	"github.com/kinvolk/lokomotive/pkg/components"
 	"github.com/kinvolk/lokomotive/pkg/components/util"
+	"github.com/kinvolk/lokomotive/pkg/k8sutil"
 )
 
 const name = "openebs-operator"
@@ -117,7 +118,13 @@ func (c *component) RenderManifests() (map[string]string, error) {
 
 func (c *component) Metadata() components.Metadata {
 	return components.Metadata{
-		Name:      name,
-		Namespace: "openebs",
+		Name: name,
+		ReleaseNamespace: k8sutil.Namespace{
+			Name: "openebs",
+			Labels: map[string]string{
+				"lokomotive.kinvolk.io/name": "openebs",
+			},
+			Annotations: map[string]string{},
+		},
 	}
 }

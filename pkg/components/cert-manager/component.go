@@ -24,6 +24,7 @@ import (
 	"github.com/kinvolk/lokomotive/internal/template"
 	"github.com/kinvolk/lokomotive/pkg/components"
 	"github.com/kinvolk/lokomotive/pkg/components/util"
+	"github.com/kinvolk/lokomotive/pkg/k8sutil"
 )
 
 const name = "cert-manager"
@@ -95,8 +96,15 @@ func (c *component) RenderManifests() (map[string]string, error) {
 
 func (c *component) Metadata() components.Metadata {
 	return components.Metadata{
-		Name:      name,
-		Namespace: c.Namespace,
+		Name: name,
+		ReleaseNamespace: k8sutil.Namespace{
+			Name: c.Namespace,
+			Labels: map[string]string{
+				"lokomotive.kinvolk.io/name":            c.Namespace,
+				"certmanager.k8s.io/disable-validation": "true",
+			},
+			Annotations: map[string]string{},
+		},
 		Helm: components.HelmMetadata{
 			// Cert-manager registers admission webhooks, so we should wait for the webhook to
 			// become ready before proceeding with installing other components, as it may fail.
