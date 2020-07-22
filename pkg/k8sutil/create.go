@@ -19,12 +19,17 @@ package k8sutil
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
 
 	"github.com/pkg/errors"
+
+	v1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 )
 
@@ -160,4 +165,63 @@ func parseJSONManifest(data []byte) ([]manifest, error) {
 		manifests = append(manifests, mn...)
 	}
 	return manifests, nil
+}
+
+// UpdateNamespace updates the namespace.
+func UpdateNamespace(namespace Namespace, kubeconfig []byte) error {
+	cs, err := NewClientset(kubeconfig)
+	if err != nil {
+		return fmt.Errorf("creating clientset: %w", err)
+	}
+
+	if namespace.Name == "" {
+		return fmt.Errorf("namespace name can't be empty")
+	}
+
+	ns, err := cs.CoreV1().Namespaces().Get(context.TODO(), namespace.Name, metav1.GetOptions{})
+	if err != nil {
+		return err
+	}
+
+	existingLabels := ns.ObjectMeta.Labels
+	existingAnnotations := ns.ObjectMeta.Annotations
+	// Delete keys from the existing labels and annotations that are defined by Lokomotive
+	// ie. keys with the prefix `lokomotive.kinvolk.io`.
+	// This ensures that when the namespace is updated, labels added by the user
+	// are retained in the update.
+	for key := range existingLabels {
+		if strings.Contains(key, "lokomotive.kinvolk.io") {
+			delete(existingLabels, key)
+		}
+	}
+
+	for key := range existingAnnotations {
+		if strings.Contains(key, "lokomotive.kinvolk.io") {
+			delete(existingAnnotations, key)
+		}
+	}
+
+	labels := namespace.Labels
+	for key, value := range existingLabels {
+		labels[key] = value
+	}
+
+	annotations := namespace.Annotations
+	for key, value := range existingAnnotations {
+		annotations[key] = value
+	}
+
+	// Update the namespace.
+	_, err = cs.CoreV1().Namespaces().Update(context.TODO(), &v1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        namespace.Name,
+			Labels:      labels,
+			Annotations: annotations,
+		},
+	}, metav1.UpdateOptions{})
+	if err != nil && !apierrors.IsAlreadyExists(err) {
+		return err
+	}
+
+	return nil
 }
