@@ -62,7 +62,7 @@ func ensureNamespaceExists(name string, kubeconfigPath string) error {
 // InstallComponent installs given component using given kubeconfig as a Helm release using a Helm client.
 func InstallComponent(c components.Component, kubeconfig string) error {
 	name := c.Metadata().Name
-	ns := c.Metadata().Namespace
+	ns := c.Metadata().ReleaseNamespace.Name
 
 	if err := ensureNamespaceExists(ns, kubeconfig); err != nil {
 		return fmt.Errorf("failed ensuring that namespace %q for component %q exists: %w", ns, name, err)

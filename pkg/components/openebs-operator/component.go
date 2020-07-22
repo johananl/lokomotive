@@ -107,7 +107,7 @@ func (c *component) RenderManifests() (map[string]string, error) {
 		return nil, fmt.Errorf("render chart values template: %w", err)
 	}
 
-	renderedFiles, err := util.RenderChart(helmChart, name, c.Metadata().Namespace, values)
+	renderedFiles, err := util.RenderChart(helmChart, name, c.Metadata().ReleaseNamespace.Name, values)
 	if err != nil {
 		return nil, fmt.Errorf("render chart: %w", err)
 	}

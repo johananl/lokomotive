@@ -83,7 +83,7 @@ func (c *component) RenderManifests() (map[string]string, error) {
 	}
 
 	// Generate YAML for the Rook operator deployment.
-	renderedFiles, err := util.RenderChart(helmChart, name, c.Metadata().Namespace, values)
+	renderedFiles, err := util.RenderChart(helmChart, name, c.Metadata().ReleaseNamespace.Name, values)
 	if err != nil {
 		return nil, fmt.Errorf("rendering chart failed: %w", err)
 	}

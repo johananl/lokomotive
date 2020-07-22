@@ -128,7 +128,7 @@ func deleteHelmRelease(c components.Component, kubeconfig string, deleteNSBool b
 		panic(fmt.Errorf("component name is empty"))
 	}
 
-	ns := c.Metadata().Namespace
+	ns := c.Metadata().ReleaseNamespace.Name
 	if ns == "" {
 		// This should never fail in real user usage, if this does that means the component was not
 		// created with all the needed information.
