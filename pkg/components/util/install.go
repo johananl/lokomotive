@@ -138,8 +138,6 @@ func chartTemplatesToPostRender(c *chart.Chart) postRender {
 		fmt.Fprintf(&buf, "\n---\n# %s\n%s", template.Name, template.Data)
 	}
 
-	c.Templates = nil
-
 	return postRender{
 		manifests: buf,
 	}
