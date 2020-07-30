@@ -15,10 +15,19 @@
 package packet
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"os"
+	"sort"
+	"text/template"
+
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/kinvolk/lokomotive/pkg/config"
 	"github.com/kinvolk/lokomotive/pkg/dns"
 	"github.com/kinvolk/lokomotive/pkg/oidc"
+	"github.com/kinvolk/lokomotive/pkg/platform"
 )
 
 type nodeRole int
@@ -103,8 +112,8 @@ func validate(c *Config) hcl.Diagnostics {
 	return nil
 }
 
-// NewConfig creates a new Config and returns a pointer to it as well as any HCL diagnostics.
-func NewConfig(b *hcl.Body, ctx *hcl.EvalContext) (*Config, hcl.Diagnostics) {
+// newConfig creates a new Config and returns a pointer to it as well as any HCL diagnostics.
+func newConfig(b *hcl.Body, ctx *hcl.EvalContext) (*Config, hcl.Diagnostics) {
 	diags := hcl.Diagnostics{}
 
 	// Create config with default values.
@@ -136,6 +145,7 @@ func NewConfig(b *hcl.Body, ctx *hcl.EvalContext) (*Config, hcl.Diagnostics) {
 
 // Cluster implements the Cluster interface for Packet.
 type Cluster struct {
+	// TODO: Make private?
 	Config *Config
 }
 
@@ -144,8 +154,13 @@ func (c *Cluster) AssetDir() string {
 }
 
 func (c *Cluster) ControlPlaneCharts() []string {
-	// TODO: Implement.
-	return []string{}
+	charts := platform.CommonControlPlaneCharts
+	charts = append(charts, "calico-host-protection")
+	if !c.Config.DisableSelfHostedKubelet {
+		charts = append(charts, "kubelet")
+	}
+
+	return charts
 }
 
 func (c *Cluster) Nodes() int {
@@ -162,13 +177,99 @@ func (c *Cluster) TerraformExecutionPlan() [][]string {
 	return [][]string{}
 }
 
-func (c *Cluster) TerraformRootModule() string {
-	// TODO: Implement.
-	return ""
+func (c *Cluster) TerraformRootModule() (string, error) {
+	t, err := template.New("rootModule").Parse(terraformConfigTmpl)
+	if err != nil {
+		return "", fmt.Errorf("parsing template: %v", err)
+	}
+
+	keyListBytes, err := json.Marshal(c.Config.SSHPubKeys)
+	if err != nil {
+		return "", fmt.Errorf("marshaling SSH public keys: %v", err)
+	}
+
+	managementCIDRs, err := json.Marshal(c.Config.ManagementCIDRs)
+	if err != nil {
+		return "", fmt.Errorf("marshaling management CIDRs: %v", err)
+	}
+
+	// Configure OIDC flags and set them to KubeAPIServerExtraFlags.
+	if c.Config.OIDC != nil {
+		// Skipping the error checking here because its done in checkValidConfig().
+		domain := fmt.Sprintf("%s.%s", c.Config.ClusterName, c.Config.DNS.Zone)
+		oidcFlags, _ := c.Config.OIDC.ToKubeAPIServerFlags(domain)
+		//TODO: Use append instead of setting the oidcFlags to KubeAPIServerExtraFlags
+		// append is not used for now because Initialize is called in cli/cmd/cluster.go
+		// and again in Apply which duplicates the values.
+		c.Config.KubeAPIServerExtraFlags = oidcFlags
+	}
+
+	// Packet does not accept tags as a key-value map but as an array of
+	// strings.
+	platform.AppendVersionTag(&c.Config.Tags)
+	tagsList := []string{}
+	for k, v := range c.Config.Tags {
+		tagsList = append(tagsList, fmt.Sprintf("%s:%s", k, v))
+	}
+	sort.Strings(tagsList)
+	tags, err := json.Marshal(tagsList)
+	if err != nil {
+		return "", fmt.Errorf("marshaling tags: %v", err)
+	}
+
+	// Append lokoctl-version tag to all worker pools.
+	for i := range c.Config.WorkerPools {
+		// Using index as we are using []workerPool which creates a copy of the slice
+		// Hence when the template is rendered worker pool Tags is empty.
+		// TODO: Add tests for validating the worker pool configuration.
+		platform.AppendVersionTag(&c.Config.WorkerPools[i].Tags)
+	}
+	// Add explicit terraform dependencies for nodes with specific hw
+	// reservation UUIDs.
+	terraformAddDeps(c.Config)
+
+	terraformCfg := struct {
+		Config          Config
+		Tags            string
+		SSHPublicKeys   string
+		ManagementCIDRs string
+	}{
+		Config:          *c.Config,
+		Tags:            string(tags),
+		SSHPublicKeys:   string(keyListBytes),
+		ManagementCIDRs: string(managementCIDRs),
+	}
+
+	var rendered bytes.Buffer
+	if err := t.Execute(&rendered, terraformCfg); err != nil {
+		return "", fmt.Errorf("rendering template: %v", err)
+	}
+
+	return rendered.String(), nil
 }
 
-func New(config *Config) *Cluster {
-	return &Cluster{Config: config}
+func (c *Cluster) Validate() error {
+	if c.Config.AuthToken == "" && os.Getenv("PACKET_AUTH_TOKEN") == "" {
+		return fmt.Errorf("cannot find the Packet authentication token:\n" +
+			"either specify AuthToken or use the PACKET_AUTH_TOKEN environment variable")
+	}
+
+	if err := c.Config.DNS.Validate(); err != nil {
+		return fmt.Errorf("parsing DNS configuration failed: %v", err)
+	}
+
+	return nil
+}
+
+// NewCluster constructs a Cluster based on the provided cluster config and returns a pointer to
+// it.
+func NewCluster(config *config.Config) (*Cluster, hcl.Diagnostics) {
+	c, diag := newConfig(&config.RootConfig.Cluster.Config, config.EvalContext)
+	if len(diag) > 0 {
+		return nil, diag
+	}
+
+	return &Cluster{Config: c}, nil
 }
 
 // func (c *config) LoadConfig(configBody *hcl.Body, evalContext *hcl.EvalContext) hcl.Diagnostics {
@@ -361,100 +462,100 @@ func New(config *Config) *Cluster {
 // 	return ex.Apply()
 // }
 
-// // terraformAddDeps adds explicit dependencies to cluster nodes so nodes
-// // with a specific hw reservation UUID are created before nodes that don't have
-// // a specific hw reservation UUID.
-// // The function modifies c.NodesDependOn and c.workerPools[].NodesDependOn,
-// // assigning to them a slice, of all Terraform targets needed to be created
-// // first. For example:
-// //
-// //	// Suppose worker pool "example" is the only to use a specific hw
-// //	// reservation IDs. IOW, the controllers (c.NodesDependOn) depends on
-// //	// worker pool "example" to be created first.
-// //	// Then, after calling this function, the attribute will be:
-// // 	c.NodesDependOn = []string{"module.worker-example.device_ids"}
-// //
-// //
-// // The explicit Terraform dependency is needed to guarantees that nodes using
-// // hardware reservation "next-available" won't use reservation IDS that another
-// // worker pool may specify with a specific UUID, and thus fail to create the
-// // node. This race condition is best explained here, if you want more info:
-// // https://github.com/terraform-providers/terraform-provider-packet/issues/176
-// // https://github.com/terraform-providers/terraform-provider-packet/pull/208
-// func (c *config) terraformAddDeps() {
-// 	// Nodes with specific hw reservation IDs.
-// 	nodesWithRes := make([]string, 0)
+// terraformAddDeps adds explicit dependencies to cluster nodes so nodes
+// with a specific hw reservation UUID are created before nodes that don't have
+// a specific hw reservation UUID.
+// The function modifies c.NodesDependOn and c.workerPools[].NodesDependOn,
+// assigning to them a slice, of all Terraform targets needed to be created
+// first. For example:
+//
+//	// Suppose worker pool "example" is the only to use a specific hw
+//	// reservation IDs. IOW, the controllers (c.NodesDependOn) depends on
+//	// worker pool "example" to be created first.
+//	// Then, after calling this function, the attribute will be:
+// 	c.NodesDependOn = []string{"module.worker-example.device_ids"}
+//
+//
+// The explicit Terraform dependency is needed to guarantees that nodes using
+// hardware reservation "next-available" won't use reservation IDS that another
+// worker pool may specify with a specific UUID, and thus fail to create the
+// node. This race condition is best explained here, if you want more info:
+// https://github.com/terraform-providers/terraform-provider-packet/issues/176
+// https://github.com/terraform-providers/terraform-provider-packet/pull/208
+func terraformAddDeps(c *Config) {
+	// Nodes with specific hw reservation IDs.
+	nodesWithRes := make([]string, 0)
 
-// 	// Note that dependencies expressed in Terraform are using the module
-// 	// output "device_ids". And it is very important to keep it this way.
-// 	//
-// 	// If we modify it to depend only on the module, for example (just
-// 	// "module.packet" instead of "module.packet.device_ids") it
-// 	// seems to work fine. However, it breaks if the dependency later
-// 	// becomes on the controller and another worker pool (e.g.
-// 	// [ "module.packet-cluster", "module.worker-1"]) as the resources aren't of
-// 	// the same *type*. In that case, Terraform throws this error:
-// 	//
-// 	// 	The given value is not suitable for child module variable
-// 	// 	"nodes_depend_on" defined at ...:
-// 	//	all list elements must have the same type.
-// 	//
-// 	// Therefore, using the output of the resources ids, this issue is
-// 	// solved: all elements of the list (no matter if the dependency is on
-// 	// workers, controller or both) will always have the same type and work
-// 	// correctly, they are just resources ids (strings).
-// 	// Also, it makes nodes depend on nodes, that is the strict dependency
-// 	// that we really have, instead of depending in the whole module. So, it
-// 	// allows Terraform to handle parallelization, and we only add
-// 	// fine-grained dependencies.
+	// Note that dependencies expressed in Terraform are using the module
+	// output "device_ids". And it is very important to keep it this way.
+	//
+	// If we modify it to depend only on the module, for example (just
+	// "module.packet" instead of "module.packet.device_ids") it
+	// seems to work fine. However, it breaks if the dependency later
+	// becomes on the controller and another worker pool (e.g.
+	// [ "module.packet-cluster", "module.worker-1"]) as the resources aren't of
+	// the same *type*. In that case, Terraform throws this error:
+	//
+	// 	The given value is not suitable for child module variable
+	// 	"nodes_depend_on" defined at ...:
+	//	all list elements must have the same type.
+	//
+	// Therefore, using the output of the resources ids, this issue is
+	// solved: all elements of the list (no matter if the dependency is on
+	// workers, controller or both) will always have the same type and work
+	// correctly, they are just resources ids (strings).
+	// Also, it makes nodes depend on nodes, that is the strict dependency
+	// that we really have, instead of depending in the whole module. So, it
+	// allows Terraform to handle parallelization, and we only add
+	// fine-grained dependencies.
 
-// 	if len(c.ReservationIDs) > 0 {
-// 		// Use a dummy tf output to wait on controllers nodes.
-// 		tfTarget := clusterTarget(c.ClusterName, "device_ids")
-// 		nodesWithRes = append(nodesWithRes, tfTarget)
-// 	}
+	if len(c.ReservationIDs) > 0 {
+		// Use a dummy tf output to wait on controllers nodes.
+		tfTarget := clusterTarget(c.ClusterName, "device_ids")
+		nodesWithRes = append(nodesWithRes, tfTarget)
+	}
 
-// 	for _, w := range c.WorkerPools {
-// 		if len(w.ReservationIDs) > 0 {
-// 			// Use a dummy tf output to wait on workers nodes.
-// 			tfTarget := poolTarget(w.Name, "device_ids")
-// 			nodesWithRes = append(nodesWithRes, tfTarget)
-// 		}
-// 	}
+	for _, w := range c.WorkerPools {
+		if len(w.ReservationIDs) > 0 {
+			// Use a dummy tf output to wait on workers nodes.
+			tfTarget := poolTarget(w.Name, "device_ids")
+			nodesWithRes = append(nodesWithRes, tfTarget)
+		}
+	}
 
-// 	// Collected all nodes with reservations, create a dependency on others
-// 	// to them, so those nodes are created first.
+	// Collected all nodes with reservations, create a dependency on others
+	// to them, so those nodes are created first.
 
-// 	if len(c.ReservationIDs) == 0 {
-// 		c.NodesDependOn = nodesWithRes
-// 	}
+	if len(c.ReservationIDs) == 0 {
+		c.NodesDependOn = nodesWithRes
+	}
 
-// 	for i := range c.WorkerPools {
-// 		if len(c.WorkerPools[i].ReservationIDs) > 0 {
-// 			continue
-// 		}
+	for i := range c.WorkerPools {
+		if len(c.WorkerPools[i].ReservationIDs) > 0 {
+			continue
+		}
 
-// 		c.WorkerPools[i].NodesDependOn = nodesWithRes
-// 	}
-// }
+		c.WorkerPools[i].NodesDependOn = nodesWithRes
+	}
+}
 
-// // poolToTarget returns a string that can be used as "-target" argument to Terraform.
-// // For example:
-// //	// target will be "module.worker-pool1.ex".
-// //	target := poolTarget("pool1", "ex")
-// //nolint: unparam
-// func poolTarget(name, resource string) string {
-// 	return fmt.Sprintf("module.worker-%v.%v", name, resource)
-// }
+// poolToTarget returns a string that can be used as "-target" argument to Terraform.
+// For example:
+//	// target will be "module.worker-pool1.ex".
+//	target := poolTarget("pool1", "ex")
+//nolint: unparam
+func poolTarget(name, resource string) string {
+	return fmt.Sprintf("module.worker-%v.%v", name, resource)
+}
 
-// // clusterTarget returns a string that can be used as "-target" argument to Terraform.
-// // For example:
-// //	// target will be "module.packet-clusterName.ex".
-// //	target := clusterTarget("clusterName", "ex")
-// //nolint: unparam
-// func clusterTarget(name, resource string) string {
-// 	return fmt.Sprintf("module.packet-%v.%v", name, resource)
-// }
+// clusterTarget returns a string that can be used as "-target" argument to Terraform.
+// For example:
+//	// target will be "module.packet-clusterName.ex".
+//	target := clusterTarget("clusterName", "ex")
+//nolint: unparam
+func clusterTarget(name, resource string) string {
+	return fmt.Sprintf("module.packet-%v.%v", name, resource)
+}
 
 // // checkValidConfig validates cluster configuration.
 // func (c *config) checkValidConfig() hcl.Diagnostics {

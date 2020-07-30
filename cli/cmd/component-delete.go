@@ -31,7 +31,6 @@ import (
 	"github.com/kinvolk/lokomotive/pkg/components/util"
 	"github.com/kinvolk/lokomotive/pkg/config"
 	"github.com/kinvolk/lokomotive/pkg/k8sutil"
-	"github.com/kinvolk/lokomotive/pkg/platform"
 )
 
 var componentDeleteCmd = &cobra.Command{
@@ -71,7 +70,7 @@ func runDelete(cmd *cobra.Command, args []string) {
 	}
 
 	// Construct a Cluster.
-	c, diags := platform.NewCluster(cc.RootConfig.Cluster.Platform, cc)
+	c, diags := createCluster(cc)
 	if diags.HasErrors() {
 		for _, diagnostic := range diags {
 			contextLogger.Error(diagnostic.Error())

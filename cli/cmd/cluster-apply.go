@@ -33,7 +33,7 @@ import (
 	"github.com/kinvolk/lokomotive/pkg/install"
 	"github.com/kinvolk/lokomotive/pkg/k8sutil"
 	"github.com/kinvolk/lokomotive/pkg/lokomotive"
-	"github.com/kinvolk/lokomotive/pkg/platform"
+	"github.com/kinvolk/lokomotive/pkg/terraform"
 )
 
 var (
@@ -80,7 +80,7 @@ func runClusterApply(cmd *cobra.Command, args []string) {
 	}
 
 	// Construct a Cluster.
-	c, diags := platform.NewCluster(cc.RootConfig.Cluster.Platform, cc)
+	c, diags := createCluster(cc)
 	if diags.HasErrors() {
 		for _, diagnostic := range diags {
 			ctxLogger.Error(diagnostic.Error())
@@ -127,46 +127,70 @@ func runClusterApply(cmd *cobra.Command, args []string) {
 	}
 
 	// Ensure Terraform root directory exists.
-	p := filepath.Join(assetDir, "terraform")
-	if err := os.MkdirAll(p, 0755); err != nil {
-		ctxLogger.Fatalf("Creating Terraform root directory at %q: %v", p, err)
+	terraformRootDir := filepath.Join(assetDir, "terraform")
+	if err := os.MkdirAll(terraformRootDir, 0755); err != nil {
+		ctxLogger.Fatalf("Creating Terraform root directory at %q: %v", terraformRootDir, err)
 	}
 
 	// Create backend file only if the backend rendered string isn't empty.
-	// TODO: Refactor and/or move this logic to a better location.
 	if len(strings.TrimSpace(renderedBackend)) > 0 {
-		backendString := fmt.Sprintf("terraform {%s}\n", renderedBackend)
-		terraformRootDir := filepath.Join(assetDir, "terraform")
 		path := filepath.Join(terraformRootDir, "backend.tf")
+		content := fmt.Sprintf("terraform {%s}\n", renderedBackend)
 
-		f, err := os.Create(path)
-		if err != nil {
-			ctxLogger.Fatalf("Failed to create backend file %q: %v", path, err)
-		}
-		defer f.Close()
-
-		if _, err = f.WriteString(backendString); err != nil {
-			ctxLogger.Fatalf("Failed to write to backend file %q: %v", path, err)
-		}
-
-		if err = f.Sync(); err != nil {
-			ctxLogger.Fatalf("Failed to flush data to file %q: %v", path, err)
+		if err := writeToFile(path, content); err != nil {
+			ctxLogger.Fatalf("Failed to write backend file %q to disk: %v", path, err)
 		}
 	}
 
-	// exists := clusterExists(ctxLogger, ex)
-	// if exists && !confirm {
-	// 	// TODO: We could plan to a file and use it when installing.
-	// 	if err := ex.Plan(); err != nil {
-	// 		ctxLogger.Fatalf("Failed to reconcile cluster state: %v", err)
-	// 	}
+	if err := c.Validate(); err != nil {
+		ctxLogger.Fatalf("Cluster config validation failed: %v", err)
+	}
 
-	// 	if !askForConfirmation("Do you want to proceed with cluster apply?") {
-	// 		ctxLogger.Println("Cluster apply cancelled")
+	// Extract control plane chart files to cluster assets directory.
+	for _, chart := range c.ControlPlaneCharts() {
+		src := filepath.Join(assets.ControlPlaneSource, chart)
+		dst := filepath.Join(assetDir, "cluster-assets", "charts", "kube-system", chart)
+		if err := assets.Extract(src, dst); err != nil {
+			ctxLogger.Fatalf("Failed to extract charts: %v", err)
+		}
+	}
 
-	// 		return
-	// 	}
-	// }
+	path := filepath.Join(terraformRootDir, "cluster.tf")
+	content, err := c.TerraformRootModule()
+	if err != nil {
+		ctxLogger.Fatalf("Failed to render Terraform root module: %v", err)
+	}
+
+	if err := writeToFile(path, content); err != nil {
+		ctxLogger.Fatalf("Failed to write Terraform root module %q to disk: %v", path, err)
+	}
+
+	// Construct Terraform executor.
+	ex, err := terraform.NewExecutor(terraform.Config{
+		WorkingDir: filepath.Join(assetDir, "terraform"),
+		Verbose:    verbose,
+	})
+	if err != nil {
+		ctxLogger.Fatalf("Failed to create Terraform executor: %v", err)
+	}
+
+	if err := ex.Init(); err != nil {
+		ctxLogger.Fatalf("Failed to initialize Terraform: %v", err)
+	}
+
+	exists := clusterExists(ctxLogger, ex)
+	if exists && !confirm {
+		// TODO: We could plan to a file and use it when installing.
+		if err := ex.Plan(); err != nil {
+			ctxLogger.Fatalf("Failed to reconcile cluster state: %v", err)
+		}
+
+		if !askForConfirmation("Do you want to proceed with cluster apply?") {
+			ctxLogger.Println("Cluster apply cancelled")
+
+			return
+		}
+	}
 
 	// if err := p.Apply(ex); err != nil {
 	// 	ctxLogger.Fatalf("error applying cluster: %v", err)
@@ -236,4 +260,23 @@ func verifyCluster(kubeconfigPath string, expectedNodes int) error {
 	}
 
 	return install.Verify(cluster)
+}
+
+// writeToFile creates a file at the provided path and writes the provided content to it.
+func writeToFile(path string, content string) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("creating file %q: %v", path, err)
+	}
+	defer f.Close()
+
+	if _, err = f.WriteString(content); err != nil {
+		return fmt.Errorf("writing to file %q: %v", path, err)
+	}
+
+	if err = f.Sync(); err != nil {
+		return fmt.Errorf("flushing data to file %q: %v", path, err)
+	}
+
+	return nil
 }

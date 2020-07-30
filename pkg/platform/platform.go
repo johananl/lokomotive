@@ -15,12 +15,6 @@
 package platform
 
 import (
-	"fmt"
-
-	"github.com/hashicorp/hcl/v2"
-
-	"github.com/kinvolk/lokomotive/pkg/config"
-	"github.com/kinvolk/lokomotive/pkg/platform/packet"
 	"github.com/kinvolk/lokomotive/pkg/version"
 )
 
@@ -28,6 +22,15 @@ const (
 	// Packet represents a Packet cluster.
 	Packet = "packet"
 )
+
+// CommonControlPlaneCharts defines a list of control plane Helm charts to be deployed for all
+// platforms.
+var CommonControlPlaneCharts = []string{
+	"calico",
+	"kube-apiserver",
+	"kubernetes",
+	"pod-checkpointer",
+}
 
 // Cluster describes a Lokomotive cluster.
 type Cluster interface {
@@ -68,29 +71,32 @@ type Cluster interface {
 	TerraformExecutionPlan() [][]string
 	// TerraformRootModule returns a string representing the contens of the root Terraform module
 	// which should be used for cluster operations.
-	TerraformRootModule() string
+	TerraformRootModule() (string, error)
+	// Validate validates the cluster configuration.
+	Validate() error
 }
 
-// NewCluster constructs a Cluster based on the provided platform name and
-// cluster config and returns a pointer to it. If a platform with the provided
-// name doesn't exist, an error is returned.
-func NewCluster(platform string, config *config.Config) (Cluster, hcl.Diagnostics) {
-	switch platform {
-	case Packet:
-		c, diag := packet.NewConfig(&config.RootConfig.Cluster.Config, config.EvalContext)
-		if len(diag) > 0 {
-			return nil, diag
-		}
+// // NewCluster constructs a Cluster based on the provided platform name and
+// // cluster config and returns a pointer to it. If a platform with the provided
+// // name doesn't exist, an error is returned.
+// func NewCluster(platform string, config *config.Config) (Cluster, hcl.Diagnostics) {
+// 	switch platform {
+// 	case Packet:
+// 		// TODO: Don't import packet package here. It creates a potential for an import cycle.
+// 		c, diag := packet.NewConfig(&config.RootConfig.Cluster.Config, config.EvalContext)
+// 		if len(diag) > 0 {
+// 			return nil, diag
+// 		}
 
-		return packet.New(c), nil
-	}
-	// TODO: Add all platforms.
+// 		return packet.New(c), nil
+// 	}
+// 	// TODO: Add all platforms.
 
-	return nil, hcl.Diagnostics{&hcl.Diagnostic{
-		Severity: hcl.DiagError,
-		Summary:  fmt.Sprintf("unknown platform %q", platform),
-	}}
-}
+// 	return nil, hcl.Diagnostics{&hcl.Diagnostic{
+// 		Severity: hcl.DiagError,
+// 		Summary:  fmt.Sprintf("unknown platform %q", platform),
+// 	}}
+// }
 
 // Meta is a generic information format about the platform.
 type Meta struct {

@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"path/filepath"
 
+	"github.com/hashicorp/hcl/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"helm.sh/helm/v3/pkg/action"
@@ -26,6 +27,9 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/kinvolk/lokomotive/pkg/components/util"
+	"github.com/kinvolk/lokomotive/pkg/config"
+	"github.com/kinvolk/lokomotive/pkg/platform"
+	"github.com/kinvolk/lokomotive/pkg/platform/packet"
 	"github.com/kinvolk/lokomotive/pkg/terraform"
 )
 
@@ -140,6 +144,27 @@ func clusterExists(ctxLogger *logrus.Entry, ex *terraform.Executor) bool {
 	}
 
 	return len(o) != 0
+}
+
+// createCluster constructs a Cluster based on the provided cluster config and returns a pointer to
+// it.
+func createCluster(config *config.Config) (platform.Cluster, hcl.Diagnostics) {
+	p := config.RootConfig.Cluster.Platform
+
+	switch p {
+	case platform.Packet:
+		c, diag := packet.NewCluster(config)
+		if len(diag) > 0 {
+			return nil, diag
+		}
+		return c, nil
+	}
+	// TODO: Add all platforms.
+
+	return nil, hcl.Diagnostics{&hcl.Diagnostic{
+		Severity: hcl.DiagError,
+		Summary:  fmt.Sprintf("unknown platform %q", p),
+	}}
 }
 
 type controlplaneUpdater struct {
