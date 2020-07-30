@@ -24,6 +24,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/kinvolk/lokomotive/pkg/backend/local"
 	"github.com/kinvolk/lokomotive/pkg/config"
 	"github.com/kinvolk/lokomotive/pkg/install"
 	"github.com/kinvolk/lokomotive/pkg/k8sutil"
@@ -83,16 +84,35 @@ func runClusterApply(cmd *cobra.Command, args []string) {
 		ctxLogger.Fatal("Errors found while loading cluster configuration")
 	}
 
-	// TODO: Handle Terraform backend generation.
-
-	// Write Terraform files to disk.
-	// TODO: Figure out a way to get the asset dir path from the config.
-	assetDir, err := homedir.Expand(c.AssetDir())
-	if err != nil {
-		ctxLogger.Fatalf("Error expanding path: %v", err)
+	// TODO: Refactor backend generation. We can probably render the backend config as part of the
+	// Terraform root module and get rid of the specialized backend-related functions.
+	// Get the configured backend for the cluster.
+	b, diags := getConfiguredBackend(cc)
+	// TODO: Deduplicate error checking.
+	if diags.HasErrors() {
+		for _, diagnostic := range diags {
+			ctxLogger.Error(diagnostic.Error())
+		}
+		ctxLogger.Fatal("Errors found while loading cluster configuration")
 	}
 
-	fmt.Println(assetDir)
+	// Use a local backend if no backend is configured.
+	if b == nil {
+		b = local.NewLocalBackend()
+	}
+
+	// Validate backend configuration.
+	if err := b.Validate(); err != nil {
+		ctxLogger.Fatalf("Failed to validate backend configuration: %v", err)
+	}
+
+	// Render backend configuration.
+	// renderedBackend, err := b.Render()
+	// if err != nil {
+	// 	ctxLogger.Fatalf("Failed to render backend configuration file: %v", err)
+	// }
+
+	// TODO: Write Terraform files to disk.
 
 	// exists := clusterExists(ctxLogger, ex)
 	// if exists && !confirm {
@@ -112,7 +132,12 @@ func runClusterApply(cmd *cobra.Command, args []string) {
 	// 	ctxLogger.Fatalf("error applying cluster: %v", err)
 	// }
 
-	// fmt.Printf("\nYour configurations are stored in %s\n", assetDir)
+	assetDir, err := homedir.Expand(c.AssetDir())
+	if err != nil {
+		ctxLogger.Fatalf("Error expanding path: %v", err)
+	}
+
+	fmt.Printf("\nYour configurations are stored in %s\n", assetDir)
 
 	// kubeconfigPath := assetsKubeconfig(assetDir)
 	// if err := verifyCluster(kubeconfigPath, p.Meta().ExpectedNodes); err != nil {
