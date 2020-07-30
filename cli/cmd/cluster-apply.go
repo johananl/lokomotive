@@ -17,6 +17,9 @@ package cmd
 import (
 	"fmt"
 	"io/ioutil"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
@@ -24,6 +27,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/kinvolk/lokomotive/pkg/assets"
 	"github.com/kinvolk/lokomotive/pkg/backend/local"
 	"github.com/kinvolk/lokomotive/pkg/config"
 	"github.com/kinvolk/lokomotive/pkg/install"
@@ -107,12 +111,48 @@ func runClusterApply(cmd *cobra.Command, args []string) {
 	}
 
 	// Render backend configuration.
-	// renderedBackend, err := b.Render()
-	// if err != nil {
-	// 	ctxLogger.Fatalf("Failed to render backend configuration file: %v", err)
-	// }
+	renderedBackend, err := b.Render()
+	if err != nil {
+		ctxLogger.Fatalf("Failed to render backend configuration file: %v", err)
+	}
 
-	// TODO: Write Terraform files to disk.
+	assetDir, err := homedir.Expand(c.AssetDir())
+	if err != nil {
+		ctxLogger.Fatalf("Error expanding path: %v", err)
+	}
+
+	terraformModuleDir := filepath.Join(assetDir, "lokomotive-kubernetes")
+	if err := assets.Extract(assets.TerraformModulesSource, terraformModuleDir); err != nil {
+		ctxLogger.Fatalf("Writing Terraform files to disk: %v", err)
+	}
+
+	// Ensure Terraform root directory exists.
+	p := filepath.Join(assetDir, "terraform")
+	if err := os.MkdirAll(p, 0755); err != nil {
+		ctxLogger.Fatalf("Creating Terraform root directory at %q: %v", p, err)
+	}
+
+	// Create backend file only if the backend rendered string isn't empty.
+	// TODO: Refactor and/or move this logic to a better location.
+	if len(strings.TrimSpace(renderedBackend)) > 0 {
+		backendString := fmt.Sprintf("terraform {%s}\n", renderedBackend)
+		terraformRootDir := filepath.Join(assetDir, "terraform")
+		path := filepath.Join(terraformRootDir, "backend.tf")
+
+		f, err := os.Create(path)
+		if err != nil {
+			ctxLogger.Fatalf("Failed to create backend file %q: %v", path, err)
+		}
+		defer f.Close()
+
+		if _, err = f.WriteString(backendString); err != nil {
+			ctxLogger.Fatalf("Failed to write to backend file %q: %v", path, err)
+		}
+
+		if err = f.Sync(); err != nil {
+			ctxLogger.Fatalf("Failed to flush data to file %q: %v", path, err)
+		}
+	}
 
 	// exists := clusterExists(ctxLogger, ex)
 	// if exists && !confirm {
@@ -131,11 +171,6 @@ func runClusterApply(cmd *cobra.Command, args []string) {
 	// if err := p.Apply(ex); err != nil {
 	// 	ctxLogger.Fatalf("error applying cluster: %v", err)
 	// }
-
-	assetDir, err := homedir.Expand(c.AssetDir())
-	if err != nil {
-		ctxLogger.Fatalf("Error expanding path: %v", err)
-	}
 
 	fmt.Printf("\nYour configurations are stored in %s\n", assetDir)
 
