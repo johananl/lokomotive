@@ -31,7 +31,7 @@ import (
 	"github.com/kinvolk/lokomotive/pkg/k8sutil"
 )
 
-func ensureNamespaceExists(name string, kubeconfigPath string) error {
+func ensureNamespaceExists(ns k8sutil.Namespace, kubeconfigPath string) error {
 	kubeconfig, err := ioutil.ReadFile(kubeconfigPath) // #nosec G304
 	if err != nil {
 		return fmt.Errorf("reading kubeconfig file: %w", err)
@@ -42,18 +42,26 @@ func ensureNamespaceExists(name string, kubeconfigPath string) error {
 		return fmt.Errorf("creating clientset: %w", err)
 	}
 
-	if name == "" {
+	if ns.Name == "" {
 		return fmt.Errorf("namespace name can't be empty")
 	}
 
 	// Ensure the namespace in which we create release and resources exists.
 	_, err = cs.CoreV1().Namespaces().Create(context.TODO(), &v1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: name,
+			Name:        ns.Name,
+			Labels:      ns.Labels,
+			Annotations: ns.Annotations,
 		},
 	}, metav1.CreateOptions{})
 	if err != nil && !errors.IsAlreadyExists(err) {
 		return err
+	}
+
+	if errors.IsAlreadyExists(err) {
+		if err := k8sutil.UpdateNamespace(ns, kubeconfig); err != nil {
+			return err
+		}
 	}
 
 	return nil
@@ -62,13 +70,13 @@ func ensureNamespaceExists(name string, kubeconfigPath string) error {
 // InstallComponent installs given component using given kubeconfig as a Helm release using a Helm client.
 func InstallComponent(c components.Component, kubeconfig string) error {
 	name := c.Metadata().Name
-	ns := c.Metadata().ReleaseNamespace.Name
+	ns := c.Metadata().ReleaseNamespace
 
 	if err := ensureNamespaceExists(ns, kubeconfig); err != nil {
-		return fmt.Errorf("failed ensuring that namespace %q for component %q exists: %w", ns, name, err)
+		return fmt.Errorf("failed ensuring that namespace %q for component %q exists: %w", ns.Name, name, err)
 	}
 
-	actionConfig, err := HelmActionConfig(ns, kubeconfig)
+	actionConfig, err := HelmActionConfig(ns.Name, kubeconfig)
 	if err != nil {
 		return fmt.Errorf("failed preparing helm client: %w", err)
 	}
@@ -97,7 +105,7 @@ func InstallComponent(c components.Component, kubeconfig string) error {
 	}
 
 	if !exists {
-		return install(helmAction, ns)
+		return install(helmAction, ns.Name)
 	}
 
 	return upgrade(helmAction)
