@@ -15,7 +15,6 @@
 package cmd
 
 import (
-	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 )
 
@@ -35,31 +34,31 @@ func init() {
 }
 
 func runClusterDestroy(cmd *cobra.Command, args []string) {
-	ctxLogger := log.WithFields(log.Fields{
-		"command": "lokoctl cluster destroy",
-		"args":    args,
-	})
+	// ctxLogger := log.WithFields(log.Fields{
+	// 	"command": "lokoctl cluster destroy",
+	// 	"args":    args,
+	// })
 
-	ex, p, _, _ := initialize(ctxLogger)
+	// ex, p, _, _ := initialize(ctxLogger)
 
-	if !clusterExists(ctxLogger, ex) {
-		ctxLogger.Println("Cluster already destroyed, nothing to do")
+	// if !clusterExists(ctxLogger, ex) {
+	// 	ctxLogger.Println("Cluster already destroyed, nothing to do")
 
-		return
-	}
+	// 	return
+	// }
 
-	if !confirm {
-		confirmation := askForConfirmation("WARNING: This action cannot be undone. Do you really want to destroy the cluster?")
-		if !confirmation {
-			ctxLogger.Println("Cluster destroy canceled")
-			return
-		}
-	}
+	// if !confirm {
+	// 	confirmation := askForConfirmation("WARNING: This action cannot be undone. Do you really want to destroy the cluster?")
+	// 	if !confirmation {
+	// 		ctxLogger.Println("Cluster destroy canceled")
+	// 		return
+	// 	}
+	// }
 
-	if err := p.Destroy(ex); err != nil {
-		ctxLogger.Fatalf("error destroying cluster: %v", err)
-	}
+	// if err := p.Destroy(ex); err != nil {
+	// 	ctxLogger.Fatalf("error destroying cluster: %v", err)
+	// }
 
-	ctxLogger.Println("Cluster destroyed successfully")
-	ctxLogger.Println("You can safely remove the assets directory now")
+	// ctxLogger.Println("Cluster destroyed successfully")
+	// ctxLogger.Println("You can safely remove the assets directory now")
 }

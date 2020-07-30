@@ -15,22 +15,10 @@
 package baremetal
 
 import (
-	"encoding/json"
-	"os"
-	"path/filepath"
-	"text/template"
-
-	"github.com/hashicorp/hcl/v2"
-	"github.com/hashicorp/hcl/v2/gohcl"
-	"github.com/mitchellh/go-homedir"
-	"github.com/pkg/errors"
-
 	"github.com/kinvolk/lokomotive/pkg/oidc"
-	"github.com/kinvolk/lokomotive/pkg/platform"
-	"github.com/kinvolk/lokomotive/pkg/terraform"
 )
 
-type config struct {
+type Platform struct {
 	AssetDir                 string            `hcl:"asset_dir"`
 	CachedInstall            string            `hcl:"cached_install,optional"`
 	ClusterName              string            `hcl:"cluster_name"`
@@ -55,184 +43,199 @@ type config struct {
 	KubeAPIServerExtraFlags  []string
 }
 
-// init registers bare-metal as a platform
-func init() {
-	platform.Register("bare-metal", NewConfig())
+func (p *Platform) ControlPlaneCharts() []string {
+	// TODO: Implement.
+	return []string{}
 }
 
-func (c *config) LoadConfig(configBody *hcl.Body, evalContext *hcl.EvalContext) hcl.Diagnostics {
-	if configBody == nil {
-		return hcl.Diagnostics{}
-	}
-
-	if diags := gohcl.DecodeBody(*configBody, evalContext, c); diags.HasErrors() {
-		return diags
-	}
-
-	return c.checkValidConfig()
+func (p *Platform) TerraformExecutionPlan() [][]string {
+	// TODO: Implement.
+	return [][]string{}
 }
 
-// Meta is part of Platform interface and returns common information about the platform configuration.
-func (c *config) Meta() platform.Meta {
-	return platform.Meta{
-		AssetDir:      c.AssetDir,
-		ExpectedNodes: len(c.ControllerMacs) + len(c.WorkerMacs),
-	}
+func (p *Platform) TerraformRootModule() string {
+	// TODO: Implement.
+	return ""
 }
 
-func NewConfig() *config {
-	return &config{
-		CachedInstall: "false",
-		OSChannel:     "flatcar-stable",
-		OSVersion:     "current",
-	}
-}
+// // init registers bare-metal as a platform
+// func init() {
+// 	platform.Register("bare-metal", NewConfig())
+// }
 
-func (c *config) Apply(ex *terraform.Executor) error {
-	if err := c.Initialize(ex); err != nil {
-		return err
-	}
+// func (c *config) LoadConfig(configBody *hcl.Body, evalContext *hcl.EvalContext) hcl.Diagnostics {
+// 	if configBody == nil {
+// 		return hcl.Diagnostics{}
+// 	}
 
-	return ex.Apply()
-}
+// 	if diags := gohcl.DecodeBody(*configBody, evalContext, c); diags.HasErrors() {
+// 		return diags
+// 	}
 
-func (c *config) Destroy(ex *terraform.Executor) error {
-	if err := c.Initialize(ex); err != nil {
-		return err
-	}
+// 	return c.checkValidConfig()
+// }
 
-	return ex.Destroy()
-}
+// // Meta is part of Platform interface and returns common information about the platform configuration.
+// func (c *config) Meta() platform.Meta {
+// 	return platform.Meta{
+// 		AssetDir:      c.AssetDir,
+// 		ExpectedNodes: len(c.ControllerMacs) + len(c.WorkerMacs),
+// 	}
+// }
 
-func (c *config) Initialize(ex *terraform.Executor) error {
-	assetDir, err := homedir.Expand(c.AssetDir)
-	if err != nil {
-		return err
-	}
+// func NewConfig() *config {
+// 	return &config{
+// 		CachedInstall: "false",
+// 		OSChannel:     "flatcar-stable",
+// 		OSVersion:     "current",
+// 	}
+// }
 
-	terraformRootDir := terraform.GetTerraformRootDir(assetDir)
+// func (c *config) Apply(ex *terraform.Executor) error {
+// 	if err := c.Initialize(ex); err != nil {
+// 		return err
+// 	}
 
-	return createTerraformConfigFile(c, terraformRootDir)
-}
+// 	return ex.Apply()
+// }
 
-func createTerraformConfigFile(cfg *config, terraformPath string) error {
-	tmplName := "cluster.tf"
-	t := template.New(tmplName)
-	t, err := t.Parse(terraformConfigTmpl)
-	if err != nil {
-		return errors.Wrap(err, "failed to parse template")
-	}
+// func (c *config) Destroy(ex *terraform.Executor) error {
+// 	if err := c.Initialize(ex); err != nil {
+// 		return err
+// 	}
 
-	path := filepath.Join(terraformPath, tmplName)
-	f, err := os.Create(path)
-	if err != nil {
-		return errors.Wrapf(err, "failed to create file %q", path)
-	}
-	defer f.Close()
+// 	return ex.Destroy()
+// }
 
-	// Configure oidc flags and set it to KubeAPIServerExtraFlags.
-	if cfg.OIDC != nil {
-		// Skipping the error checking here because its done in checkValidConfig().
-		oidcFlags, _ := cfg.OIDC.ToKubeAPIServerFlags(cfg.K8sDomainName)
-		//TODO: Use append instead of setting the oidcFlags to KubeAPIServerExtraFlags
-		// append is not used for now because Initialize is called in cli/cmd/cluster.go
-		// and again in Apply which duplicates the values.
-		cfg.KubeAPIServerExtraFlags = oidcFlags
-	}
+// func (c *config) Initialize(ex *terraform.Executor) error {
+// 	assetDir, err := homedir.Expand(c.AssetDir)
+// 	if err != nil {
+// 		return err
+// 	}
 
-	keyListBytes, err := json.Marshal(cfg.SSHPubKeys)
-	if err != nil {
-		return errors.Wrap(err, "failed to marshal SSH public keys")
-	}
+// 	terraformRootDir := terraform.GetTerraformRootDir(assetDir)
 
-	workerDomains, err := json.Marshal(cfg.WorkerDomains)
-	if err != nil {
-		return errors.Wrapf(err, "failed to parse %q", cfg.WorkerDomains)
-	}
+// 	return createTerraformConfigFile(c, terraformRootDir)
+// }
 
-	workerMacs, err := json.Marshal(cfg.WorkerMacs)
-	if err != nil {
-		return errors.Wrapf(err, "failed to parse %q", cfg.WorkerMacs)
-	}
+// func createTerraformConfigFile(cfg *config, terraformPath string) error {
+// 	tmplName := "cluster.tf"
+// 	t := template.New(tmplName)
+// 	t, err := t.Parse(terraformConfigTmpl)
+// 	if err != nil {
+// 		return errors.Wrap(err, "failed to parse template")
+// 	}
 
-	workerNames, err := json.Marshal(cfg.WorkerNames)
-	if err != nil {
-		return errors.Wrapf(err, "failed to parse %q", cfg.WorkerNames)
-	}
+// 	path := filepath.Join(terraformPath, tmplName)
+// 	f, err := os.Create(path)
+// 	if err != nil {
+// 		return errors.Wrapf(err, "failed to create file %q", path)
+// 	}
+// 	defer f.Close()
 
-	controllerDomains, err := json.Marshal(cfg.ControllerDomains)
-	if err != nil {
-		return errors.Wrapf(err, "failed to parse %q", cfg.ControllerDomains)
-	}
+// 	// Configure oidc flags and set it to KubeAPIServerExtraFlags.
+// 	if cfg.OIDC != nil {
+// 		// Skipping the error checking here because its done in checkValidConfig().
+// 		oidcFlags, _ := cfg.OIDC.ToKubeAPIServerFlags(cfg.K8sDomainName)
+// 		//TODO: Use append instead of setting the oidcFlags to KubeAPIServerExtraFlags
+// 		// append is not used for now because Initialize is called in cli/cmd/cluster.go
+// 		// and again in Apply which duplicates the values.
+// 		cfg.KubeAPIServerExtraFlags = oidcFlags
+// 	}
 
-	controllerMacs, err := json.Marshal(cfg.ControllerMacs)
-	if err != nil {
-		return errors.Wrapf(err, "failed to parse %q", cfg.ControllerMacs)
-	}
+// 	keyListBytes, err := json.Marshal(cfg.SSHPubKeys)
+// 	if err != nil {
+// 		return errors.Wrap(err, "failed to marshal SSH public keys")
+// 	}
 
-	controllerNames, err := json.Marshal(cfg.ControllerNames)
-	if err != nil {
-		return errors.Wrapf(err, "failed to parse %q", cfg.ControllerNames)
-	}
+// 	workerDomains, err := json.Marshal(cfg.WorkerDomains)
+// 	if err != nil {
+// 		return errors.Wrapf(err, "failed to parse %q", cfg.WorkerDomains)
+// 	}
 
-	terraformCfg := struct {
-		CachedInstall            string
-		ClusterName              string
-		ControllerDomains        string
-		ControllerMacs           string
-		ControllerNames          string
-		K8sDomainName            string
-		MatchboxClientCert       string
-		MatchboxClientKey        string
-		MatchboxCA               string
-		MatchboxEndpoint         string
-		MatchboxHTTPEndpoint     string
-		OSChannel                string
-		OSVersion                string
-		SSHPublicKeys            string
-		WorkerNames              string
-		WorkerMacs               string
-		WorkerDomains            string
-		DisableSelfHostedKubelet bool
-		KubeAPIServerExtraFlags  []string
-		Labels                   map[string]string
-	}{
-		CachedInstall:            cfg.CachedInstall,
-		ClusterName:              cfg.ClusterName,
-		ControllerDomains:        string(controllerDomains),
-		ControllerMacs:           string(controllerMacs),
-		ControllerNames:          string(controllerNames),
-		K8sDomainName:            cfg.K8sDomainName,
-		MatchboxCA:               cfg.MatchboxCAPath,
-		MatchboxClientCert:       cfg.MatchboxClientCertPath,
-		MatchboxClientKey:        cfg.MatchboxClientKeyPath,
-		MatchboxEndpoint:         cfg.MatchboxEndpoint,
-		MatchboxHTTPEndpoint:     cfg.MatchboxHTTPEndpoint,
-		OSChannel:                cfg.OSChannel,
-		OSVersion:                cfg.OSVersion,
-		SSHPublicKeys:            string(keyListBytes),
-		WorkerNames:              string(workerNames),
-		WorkerMacs:               string(workerMacs),
-		WorkerDomains:            string(workerDomains),
-		DisableSelfHostedKubelet: cfg.DisableSelfHostedKubelet,
-		KubeAPIServerExtraFlags:  cfg.KubeAPIServerExtraFlags,
-		Labels:                   cfg.Labels,
-	}
+// 	workerMacs, err := json.Marshal(cfg.WorkerMacs)
+// 	if err != nil {
+// 		return errors.Wrapf(err, "failed to parse %q", cfg.WorkerMacs)
+// 	}
 
-	if err := t.Execute(f, terraformCfg); err != nil {
-		return errors.Wrapf(err, "failed to write template to file: %q", path)
-	}
-	return nil
-}
+// 	workerNames, err := json.Marshal(cfg.WorkerNames)
+// 	if err != nil {
+// 		return errors.Wrapf(err, "failed to parse %q", cfg.WorkerNames)
+// 	}
 
-// checkValidConfig validates cluster configuration.
-func (c *config) checkValidConfig() hcl.Diagnostics {
-	var diagnostics hcl.Diagnostics
+// 	controllerDomains, err := json.Marshal(cfg.ControllerDomains)
+// 	if err != nil {
+// 		return errors.Wrapf(err, "failed to parse %q", cfg.ControllerDomains)
+// 	}
 
-	if c.OIDC != nil {
-		_, diags := c.OIDC.ToKubeAPIServerFlags(c.K8sDomainName)
-		diagnostics = append(diagnostics, diags...)
-	}
+// 	controllerMacs, err := json.Marshal(cfg.ControllerMacs)
+// 	if err != nil {
+// 		return errors.Wrapf(err, "failed to parse %q", cfg.ControllerMacs)
+// 	}
 
-	return diagnostics
-}
+// 	controllerNames, err := json.Marshal(cfg.ControllerNames)
+// 	if err != nil {
+// 		return errors.Wrapf(err, "failed to parse %q", cfg.ControllerNames)
+// 	}
+
+// 	terraformCfg := struct {
+// 		CachedInstall            string
+// 		ClusterName              string
+// 		ControllerDomains        string
+// 		ControllerMacs           string
+// 		ControllerNames          string
+// 		K8sDomainName            string
+// 		MatchboxClientCert       string
+// 		MatchboxClientKey        string
+// 		MatchboxCA               string
+// 		MatchboxEndpoint         string
+// 		MatchboxHTTPEndpoint     string
+// 		OSChannel                string
+// 		OSVersion                string
+// 		SSHPublicKeys            string
+// 		WorkerNames              string
+// 		WorkerMacs               string
+// 		WorkerDomains            string
+// 		DisableSelfHostedKubelet bool
+// 		KubeAPIServerExtraFlags  []string
+// 		Labels                   map[string]string
+// 	}{
+// 		CachedInstall:            cfg.CachedInstall,
+// 		ClusterName:              cfg.ClusterName,
+// 		ControllerDomains:        string(controllerDomains),
+// 		ControllerMacs:           string(controllerMacs),
+// 		ControllerNames:          string(controllerNames),
+// 		K8sDomainName:            cfg.K8sDomainName,
+// 		MatchboxCA:               cfg.MatchboxCAPath,
+// 		MatchboxClientCert:       cfg.MatchboxClientCertPath,
+// 		MatchboxClientKey:        cfg.MatchboxClientKeyPath,
+// 		MatchboxEndpoint:         cfg.MatchboxEndpoint,
+// 		MatchboxHTTPEndpoint:     cfg.MatchboxHTTPEndpoint,
+// 		OSChannel:                cfg.OSChannel,
+// 		OSVersion:                cfg.OSVersion,
+// 		SSHPublicKeys:            string(keyListBytes),
+// 		WorkerNames:              string(workerNames),
+// 		WorkerMacs:               string(workerMacs),
+// 		WorkerDomains:            string(workerDomains),
+// 		DisableSelfHostedKubelet: cfg.DisableSelfHostedKubelet,
+// 		KubeAPIServerExtraFlags:  cfg.KubeAPIServerExtraFlags,
+// 		Labels:                   cfg.Labels,
+// 	}
+
+// 	if err := t.Execute(f, terraformCfg); err != nil {
+// 		return errors.Wrapf(err, "failed to write template to file: %q", path)
+// 	}
+// 	return nil
+// }
+
+// // checkValidConfig validates cluster configuration.
+// func (c *config) checkValidConfig() hcl.Diagnostics {
+// 	var diagnostics hcl.Diagnostics
+
+// 	if c.OIDC != nil {
+// 		_, diags := c.OIDC.ToKubeAPIServerFlags(c.K8sDomainName)
+// 		diagnostics = append(diagnostics, diags...)
+// 	}
+
+// 	return diagnostics
+// }

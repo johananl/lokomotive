@@ -18,17 +18,78 @@ import (
 	"fmt"
 
 	"github.com/hashicorp/hcl/v2"
-	"github.com/kinvolk/lokomotive/pkg/terraform"
+
+	"github.com/kinvolk/lokomotive/pkg/config"
+	"github.com/kinvolk/lokomotive/pkg/platform/packet"
 	"github.com/kinvolk/lokomotive/pkg/version"
 )
 
-// Platform describes single environment, where cluster can be installed
-type Platform interface {
-	LoadConfig(*hcl.Body, *hcl.EvalContext) hcl.Diagnostics
-	Apply(*terraform.Executor) error
-	Destroy(*terraform.Executor) error
-	Initialize(*terraform.Executor) error
-	Meta() Meta
+const (
+	// Packet represents a Packet cluster.
+	Packet = "packet"
+)
+
+// Cluster describes a Lokomotive cluster.
+type Cluster interface {
+	// LoadConfig(*hcl.Body, *hcl.EvalContext) hcl.Diagnostics
+	// Apply(*terraform.Executor) error
+	// Destroy(*terraform.Executor) error
+	// Initialize(*terraform.Executor) error
+	// Meta() Meta
+
+	// AssetDir returns the path to the Lokomotive assets directory.
+	AssetDir() string
+	// Nodes returns the total number of nodes for the cluster. This is the total number of nodes
+	// including all controller nodes and all worker nodes from all worker pools.
+	Nodes() int
+	// ControlPlaneCharts returns a list of Helm charts which compose the k8s control plane.
+	ControlPlaneCharts() []string
+	// TerraformExecutionPlan returns a list of Terraform commands which should be executed to get
+	// a working cluster on a platform. The execution plan is used during cluster creation only.
+	// When destroying a cluster, a simple `terraform destroy` is always executed.
+	//
+	// Each command is a slice of strings where each string is one argument. Following is a sample
+	// value:
+	//
+	// [][]string{
+	// 	// Apply a specific resource.
+	// 	[]string{"apply", "-auto-approve", "-target=packet_device.foo"},
+	// 	// Apply a specific module.
+	// 	[]string{"apply", "-auto-approve", "-target=module.bar"},
+	// 	// Perform a Terraform refresh.
+	// 	[]string{"refresh"},
+	// 	// Apply the entire root module.
+	// 	[]string{"apply", "-auto-approve"},
+	// }
+	//
+	// `apply` operations should be followed by `-auto-approve` to skip interactive prompts.
+	//
+	// The commands are passed as arguments to the `terraform` binary and are executed in order.
+	TerraformExecutionPlan() [][]string
+	// TerraformRootModule returns a string representing the contens of the root Terraform module
+	// which should be used for cluster operations.
+	TerraformRootModule() string
+}
+
+// NewCluster constructs a Cluster based on the provided platform name and
+// cluster config and returns a pointer to it. If a platform with the provided
+// name doesn't exist, an error is returned.
+func NewCluster(platform string, config *config.Config) (Cluster, hcl.Diagnostics) {
+	switch platform {
+	case Packet:
+		c, diag := packet.NewConfig(&config.RootConfig.Cluster.Config, config.EvalContext)
+		if len(diag) > 0 {
+			return nil, diag
+		}
+
+		return packet.New(c), nil
+	}
+	// TODO: Add all platforms.
+
+	return nil, hcl.Diagnostics{&hcl.Diagnostic{
+		Severity: hcl.DiagError,
+		Summary:  fmt.Sprintf("unknown platform %q", platform),
+	}}
 }
 
 // Meta is a generic information format about the platform.
@@ -39,29 +100,29 @@ type Meta struct {
 }
 
 // platforms is a collection where all platforms gets automatically registered
-var platforms map[string]Platform
+// var platforms map[string]Platform
 
 // initialize package's global variable when package is imported
-func init() {
-	platforms = make(map[string]Platform)
-}
+// func init() {
+// 	platforms = make(map[string]Platform)
+// }
 
 // Register adds platform into internal map
-func Register(name string, p Platform) {
-	if _, exists := platforms[name]; exists {
-		panic(fmt.Sprintf("platform with name %q registered already", name))
-	}
-	platforms[name] = p
-}
+// func Register(name string, p Platform) {
+// 	if _, exists := platforms[name]; exists {
+// 		panic(fmt.Sprintf("platform with name %q registered already", name))
+// 	}
+// 	platforms[name] = p
+// }
 
 // GetPlatform returns platform based on the name
-func GetPlatform(name string) (Platform, error) {
-	platform, exists := platforms[name]
-	if !exists {
-		return nil, fmt.Errorf("no platform with name %q found", name)
-	}
-	return platform, nil
-}
+// func GetPlatform(name string) (Platform, error) {
+// 	platform, exists := platforms[name]
+// 	if !exists {
+// 		return nil, fmt.Errorf("no platform with name %q found", name)
+// 	}
+// 	return platform, nil
+// }
 
 // AppendVersionTag appends the lokoctl-version tag to a given tags map.
 func AppendVersionTag(tags *map[string]string) {

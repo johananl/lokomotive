@@ -14,28 +14,22 @@
 
 package baremetal
 
-import (
-	"io/ioutil"
-	"os"
-	"testing"
-)
+// // createTerraformConfigFile() test.
+// func TestCreateTerraformConfigFile(t *testing.T) {
+// 	tmpDir, err := ioutil.TempDir("", "lokoctl-tests-")
+// 	if err != nil {
+// 		t.Fatalf("creating tmp dir should succeed, got: %v", err)
+// 	}
 
-// createTerraformConfigFile() test.
-func TestCreateTerraformConfigFile(t *testing.T) {
-	tmpDir, err := ioutil.TempDir("", "lokoctl-tests-")
-	if err != nil {
-		t.Fatalf("creating tmp dir should succeed, got: %v", err)
-	}
+// 	t.Cleanup(func() {
+// 		if err := os.RemoveAll(tmpDir); err != nil {
+// 			t.Logf("failed to remove temp dir %q: %v", tmpDir, err)
+// 		}
+// 	})
 
-	t.Cleanup(func() {
-		if err := os.RemoveAll(tmpDir); err != nil {
-			t.Logf("failed to remove temp dir %q: %v", tmpDir, err)
-		}
-	})
+// 	c := &config{}
 
-	c := &config{}
-
-	if err := createTerraformConfigFile(c, tmpDir); err != nil {
-		t.Fatalf("creating Terraform config files should succeed, got: %v", err)
-	}
-}
+// 	if err := createTerraformConfigFile(c, tmpDir); err != nil {
+// 		t.Fatalf("creating Terraform config files should succeed, got: %v", err)
+// 	}
+// }

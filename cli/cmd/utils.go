@@ -21,12 +21,10 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/mitchellh/go-homedir"
-	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/kinvolk/lokomotive/pkg/backend"
 	"github.com/kinvolk/lokomotive/pkg/config"
-	"github.com/kinvolk/lokomotive/pkg/platform"
 )
 
 const (
@@ -54,44 +52,44 @@ func getConfiguredBackend(lokoConfig *config.Config) (backend.Backend, hcl.Diagn
 }
 
 // getConfiguredPlatform loads a platform from the given configuration file.
-func getConfiguredPlatform() (platform.Platform, hcl.Diagnostics) {
-	lokoConfig, diags := getLokoConfig()
-	if diags.HasErrors() {
-		return nil, diags
-	}
+// func getConfiguredPlatform() (platform.Platform, hcl.Diagnostics) {
+// 	lokoConfig, diags := getLokoConfig()
+// 	if diags.HasErrors() {
+// 		return nil, diags
+// 	}
 
-	if lokoConfig.RootConfig.Cluster == nil {
-		// No cluster defined and no configuration error
-		return nil, hcl.Diagnostics{}
-	}
+// 	if lokoConfig.RootConfig.Cluster == nil {
+// 		// No cluster defined and no configuration error
+// 		return nil, hcl.Diagnostics{}
+// 	}
 
-	platform, err := platform.GetPlatform(lokoConfig.RootConfig.Cluster.Name)
-	if err != nil {
-		diag := &hcl.Diagnostic{
-			Severity: hcl.DiagError,
-			Summary:  err.Error(),
-		}
-		return nil, hcl.Diagnostics{diag}
-	}
+// 	platform, err := platform.GetPlatform(lokoConfig.RootConfig.Cluster.Name)
+// 	if err != nil {
+// 		diag := &hcl.Diagnostic{
+// 			Severity: hcl.DiagError,
+// 			Summary:  err.Error(),
+// 		}
+// 		return nil, hcl.Diagnostics{diag}
+// 	}
 
-	return platform, platform.LoadConfig(&lokoConfig.RootConfig.Cluster.Config, lokoConfig.EvalContext)
-}
+// 	return platform, platform.LoadConfig(&lokoConfig.RootConfig.Cluster.Config, lokoConfig.EvalContext)
+// }
 
 // getAssetDir extracts the asset path from the cluster configuration.
 // It is empty if there is no cluster defined. An error is returned if the
 // cluster configuration has problems.
-func getAssetDir() (string, error) {
-	cfg, diags := getConfiguredPlatform()
-	if diags.HasErrors() {
-		return "", fmt.Errorf("cannot load config: %s", diags)
-	}
-	if cfg == nil {
-		// No cluster defined and no configuration error
-		return "", nil
-	}
+// func getAssetDir() (string, error) {
+// 	cfg, diags := getConfiguredPlatform()
+// 	if diags.HasErrors() {
+// 		return "", fmt.Errorf("cannot load config: %s", diags)
+// 	}
+// 	if cfg == nil {
+// 		// No cluster defined and no configuration error
+// 		return "", nil
+// 	}
 
-	return cfg.Meta().AssetDir, nil
-}
+// 	return cfg.Meta().AssetDir, nil
+// }
 
 // expandKubeconfigPath tries to expand ~ in the given kubeconfig path.
 // However, if that fails, it just returns original path as the best effort.
@@ -113,8 +111,8 @@ func expandKubeconfigPath(path string) string {
 // - Asset directory from cluster configuration.
 // - KUBECONFIG environment variable.
 // - ~/.kube/config path, which is the default for kubectl.
-func getKubeconfig() (string, error) {
-	assetKubeconfig, err := assetsKubeconfigPath()
+func getKubeconfig(assetDir string) (string, error) {
+	assetKubeconfig, err := assetsKubeconfigPath(assetDir)
 	if err != nil {
 		return "", fmt.Errorf("reading kubeconfig path from configuration failed: %w", err)
 	}
@@ -144,11 +142,11 @@ func pickString(options ...string) string {
 // the kubeconfig path defined in it.
 //
 // If no configuration is defined, empty string is returned.
-func assetsKubeconfigPath() (string, error) {
-	assetDir, err := getAssetDir()
-	if err != nil {
-		return "", err
-	}
+func assetsKubeconfigPath(assetDir string) (string, error) {
+	// assetDir, err := getAssetDir()
+	// if err != nil {
+	// 	return "", err
+	// }
 
 	if assetDir != "" {
 		return assetsKubeconfig(assetDir), nil
@@ -162,21 +160,21 @@ func assetsKubeconfig(assetDir string) string {
 }
 
 // doesKubeconfigExist checks if the kubeconfig provided by user exists
-func doesKubeconfigExist(*cobra.Command, []string) error {
-	var err error
-	kubeconfig, err := getKubeconfig()
-	if err != nil {
-		return err
-	}
-	if _, err = os.Stat(kubeconfig); os.IsNotExist(err) {
-		return fmt.Errorf("Kubeconfig %q not found", kubeconfig)
-	}
-	return err
-}
+// func doesKubeconfigExist(*cobra.Command, []string) error {
+// 	var err error
+// 	kubeconfig, err := getKubeconfig()
+// 	if err != nil {
+// 		return err
+// 	}
+// 	if _, err = os.Stat(kubeconfig); os.IsNotExist(err) {
+// 		return fmt.Errorf("Kubeconfig %q not found", kubeconfig)
+// 	}
+// 	return err
+// }
 
-func getLokoConfig() (*config.Config, hcl.Diagnostics) {
-	return config.LoadConfig(viper.GetString("lokocfg"), viper.GetString("lokocfg-vars"))
-}
+// func getLokoConfig() (*config.Config, hcl.Diagnostics) {
+// 	return config.LoadConfig(viper.GetString("lokocfg"), viper.GetString("lokocfg-vars"))
+// }
 
 // askForConfirmation asks the user to confirm an action.
 // It prints the message and then asks the user to type "yes" or "no".

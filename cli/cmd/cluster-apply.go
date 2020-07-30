@@ -18,13 +18,17 @@ import (
 	"fmt"
 	"io/ioutil"
 
+	"github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 
+	"github.com/kinvolk/lokomotive/pkg/config"
 	"github.com/kinvolk/lokomotive/pkg/install"
 	"github.com/kinvolk/lokomotive/pkg/k8sutil"
 	"github.com/kinvolk/lokomotive/pkg/lokomotive"
+	"github.com/kinvolk/lokomotive/pkg/platform"
 )
 
 var (
@@ -58,71 +62,101 @@ func runClusterApply(cmd *cobra.Command, args []string) {
 		"args":    args,
 	})
 
-	ex, p, lokoConfig, assetDir := initialize(ctxLogger)
+	// Read cluster config from HCL files.
+	cp := viper.GetString("lokocfg")
+	vp := viper.GetString("lokocfg-vars")
+	cc, diags := config.Read(cp, vp)
+	if len(diags) > 0 {
+		ctxLogger.Fatal(diags)
+	}
+	if cc.RootConfig.Cluster == nil {
+		// No `cluster` block specified in the configuration.
+		ctxLogger.Fatal("No cluster configured")
+	}
 
-	exists := clusterExists(ctxLogger, ex)
-	if exists && !confirm {
-		// TODO: We could plan to a file and use it when installing.
-		if err := ex.Plan(); err != nil {
-			ctxLogger.Fatalf("Failed to reconcile cluster state: %v", err)
+	// Construct a Cluster.
+	c, diags := platform.NewCluster(cc.RootConfig.Cluster.Platform, cc)
+	if diags.HasErrors() {
+		for _, diagnostic := range diags {
+			ctxLogger.Error(diagnostic.Error())
 		}
-
-		if !askForConfirmation("Do you want to proceed with cluster apply?") {
-			ctxLogger.Println("Cluster apply cancelled")
-
-			return
-		}
+		ctxLogger.Fatal("Errors found while loading cluster configuration")
 	}
 
-	if err := p.Apply(ex); err != nil {
-		ctxLogger.Fatalf("error applying cluster: %v", err)
+	// TODO: Handle Terraform backend generation.
+
+	// Write Terraform files to disk.
+	// TODO: Figure out a way to get the asset dir path from the config.
+	assetDir, err := homedir.Expand(c.AssetDir())
+	if err != nil {
+		ctxLogger.Fatalf("Error expanding path: %v", err)
 	}
 
-	fmt.Printf("\nYour configurations are stored in %s\n", assetDir)
+	fmt.Println(assetDir)
 
-	kubeconfigPath := assetsKubeconfig(assetDir)
-	if err := verifyCluster(kubeconfigPath, p.Meta().ExpectedNodes); err != nil {
-		ctxLogger.Fatalf("Verify cluster: %v", err)
-	}
+	// exists := clusterExists(ctxLogger, ex)
+	// if exists && !confirm {
+	// 	// TODO: We could plan to a file and use it when installing.
+	// 	if err := ex.Plan(); err != nil {
+	// 		ctxLogger.Fatalf("Failed to reconcile cluster state: %v", err)
+	// 	}
 
-	// Do controlplane upgrades only if cluster already exists and it is not a managed platform.
-	if exists && !p.Meta().Managed {
-		fmt.Printf("\nEnsuring that cluster controlplane is up to date.\n")
+	// 	if !askForConfirmation("Do you want to proceed with cluster apply?") {
+	// 		ctxLogger.Println("Cluster apply cancelled")
 
-		cu := controlplaneUpdater{
-			kubeconfigPath: kubeconfigPath,
-			assetDir:       assetDir,
-			ctxLogger:      *ctxLogger,
-			ex:             *ex,
-		}
+	// 		return
+	// 	}
+	// }
 
-		releases := []string{"pod-checkpointer", "kube-apiserver", "kubernetes", "calico"}
+	// if err := p.Apply(ex); err != nil {
+	// 	ctxLogger.Fatalf("error applying cluster: %v", err)
+	// }
 
-		if upgradeKubelets {
-			releases = append(releases, "kubelet")
-		}
+	// fmt.Printf("\nYour configurations are stored in %s\n", assetDir)
 
-		for _, c := range releases {
-			cu.upgradeComponent(c)
-		}
-	}
+	// kubeconfigPath := assetsKubeconfig(assetDir)
+	// if err := verifyCluster(kubeconfigPath, p.Meta().ExpectedNodes); err != nil {
+	// 	ctxLogger.Fatalf("Verify cluster: %v", err)
+	// }
 
-	if skipComponents {
-		return
-	}
+	// // Do controlplane upgrades only if cluster already exists and it is not a managed platform.
+	// if exists && !p.Meta().Managed {
+	// 	fmt.Printf("\nEnsuring that cluster controlplane is up to date.\n")
 
-	componentsToApply := []string{}
-	for _, component := range lokoConfig.RootConfig.Components {
-		componentsToApply = append(componentsToApply, component.Name)
-	}
+	// 	cu := controlplaneUpdater{
+	// 		kubeconfigPath: kubeconfigPath,
+	// 		assetDir:       assetDir,
+	// 		ctxLogger:      *ctxLogger,
+	// 		ex:             *ex,
+	// 	}
 
-	ctxLogger.Println("Applying component configuration")
+	// 	releases := []string{"pod-checkpointer", "kube-apiserver", "kubernetes", "calico"}
 
-	if len(componentsToApply) > 0 {
-		if err := applyComponents(lokoConfig, kubeconfigPath, componentsToApply...); err != nil {
-			ctxLogger.Fatalf("Applying component configuration failed: %v", err)
-		}
-	}
+	// 	if upgradeKubelets {
+	// 		releases = append(releases, "kubelet")
+	// 	}
+
+	// 	for _, c := range releases {
+	// 		cu.upgradeComponent(c)
+	// 	}
+	// }
+
+	// if skipComponents {
+	// 	return
+	// }
+
+	// componentsToApply := []string{}
+	// for _, component := range lokoConfig.RootConfig.Components {
+	// 	componentsToApply = append(componentsToApply, component.Name)
+	// }
+
+	// ctxLogger.Println("Applying component configuration")
+
+	// if len(componentsToApply) > 0 {
+	// 	if err := applyComponents(lokoConfig, kubeconfigPath, componentsToApply...); err != nil {
+	// 		ctxLogger.Fatalf("Applying component configuration failed: %v", err)
+	// 	}
+	// }
 }
 
 func verifyCluster(kubeconfigPath string, expectedNodes int) error {

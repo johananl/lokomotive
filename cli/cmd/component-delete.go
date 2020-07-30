@@ -22,13 +22,16 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"helm.sh/helm/v3/pkg/action"
 	"k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/kinvolk/lokomotive/pkg/components"
 	"github.com/kinvolk/lokomotive/pkg/components/util"
+	"github.com/kinvolk/lokomotive/pkg/config"
 	"github.com/kinvolk/lokomotive/pkg/k8sutil"
+	"github.com/kinvolk/lokomotive/pkg/platform"
 )
 
 var componentDeleteCmd = &cobra.Command{
@@ -55,18 +58,34 @@ func runDelete(cmd *cobra.Command, args []string) {
 		"args":    args,
 	})
 
-	lokoCfg, diags := getLokoConfig()
+	// Read cluster config from HCL files.
+	cp := viper.GetString("lokocfg")
+	vp := viper.GetString("lokocfg-vars")
+	cc, diags := config.Read(cp, vp)
 	if len(diags) > 0 {
 		contextLogger.Fatal(diags)
+	}
+	if cc.RootConfig.Cluster == nil {
+		// No `cluster` block specified in the configuration.
+		contextLogger.Fatal("No cluster configured")
+	}
+
+	// Construct a Cluster.
+	c, diags := platform.NewCluster(cc.RootConfig.Cluster.Platform, cc)
+	if diags.HasErrors() {
+		for _, diagnostic := range diags {
+			contextLogger.Error(diagnostic.Error())
+		}
+		contextLogger.Fatal("Errors found while loading cluster configuration")
 	}
 
 	componentsToDelete := make([]string, len(args))
 	copy(componentsToDelete, args)
 
 	if len(args) == 0 {
-		componentsToDelete = make([]string, len(lokoCfg.RootConfig.Components))
+		componentsToDelete = make([]string, len(cc.RootConfig.Components))
 
-		for i, component := range lokoCfg.RootConfig.Components {
+		for i, component := range cc.RootConfig.Components {
 			componentsToDelete[i] = component.Name
 		}
 	}
@@ -92,7 +111,7 @@ func runDelete(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	kubeconfig, err := getKubeconfig()
+	kubeconfig, err := getKubeconfig(c.AssetDir())
 	if err != nil {
 		contextLogger.Fatalf("Error in finding kubeconfig file: %s", err)
 	}
