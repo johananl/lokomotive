@@ -62,11 +62,13 @@ type Cluster interface {
 
 	// AssetDir returns the path to the Lokomotive assets directory.
 	AssetDir() string
+	// ControlPlaneCharts returns a list of Helm charts which compose the k8s control plane.
+	ControlPlaneCharts() []string
+	// Managed returns true if the cluster uses a managed platform (e.g. AKS).
+	Managed() bool
 	// Nodes returns the total number of nodes for the cluster. This is the total number of nodes
 	// including all controller nodes and all worker nodes from all worker pools.
 	Nodes() int
-	// ControlPlaneCharts returns a list of Helm charts which compose the k8s control plane.
-	ControlPlaneCharts() []string
 	// TerraformExecutionPlan returns a list of TerraformExecutionSteps representing steps which
 	// should be executed to get a working cluster on a platform. The execution plan is used during
 	// cluster creation only - when destroying a cluster, a simple `terraform destroy` is always

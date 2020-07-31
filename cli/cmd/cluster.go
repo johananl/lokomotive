@@ -16,6 +16,7 @@ package cmd
 
 import (
 	"fmt"
+	"io/ioutil"
 	"path/filepath"
 
 	"github.com/hashicorp/hcl/v2"
@@ -188,13 +189,14 @@ func (c controlplaneUpdater) getControlplaneChart(name string) (*chart.Chart, er
 }
 
 func (c controlplaneUpdater) getControlplaneValues(name string) (map[string]interface{}, error) {
-	valuesRaw := ""
-	if err := c.ex.Output(fmt.Sprintf("%s_values", name), &valuesRaw); err != nil {
-		return nil, fmt.Errorf("failed to get controlplane component values.yaml from Terraform: %w", err)
+	p := filepath.Join(c.assetDir, "cluster-assets", "charts", "kube-system", name+".yaml")
+	v, err := ioutil.ReadFile(p)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read Helm values file %q: %w", p, err)
 	}
 
 	values := map[string]interface{}{}
-	if err := yaml.Unmarshal([]byte(valuesRaw), &values); err != nil {
+	if err := yaml.Unmarshal([]byte(v), &values); err != nil {
 		return nil, fmt.Errorf("failed to parse values.yaml for controlplane component: %w", err)
 	}
 

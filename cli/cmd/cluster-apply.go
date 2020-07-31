@@ -211,49 +211,53 @@ func runClusterApply(cmd *cobra.Command, args []string) {
 
 	fmt.Printf("\nYour configurations are stored in %s\n", assetDir)
 
-	// kubeconfigPath := assetsKubeconfig(assetDir)
-	// if err := verifyCluster(kubeconfigPath, p.Meta().ExpectedNodes); err != nil {
-	// 	ctxLogger.Fatalf("Verify cluster: %v", err)
-	// }
+	kubeconfigPath := assetsKubeconfig(assetDir)
+	if err := verifyCluster(kubeconfigPath, c.Nodes()); err != nil {
+		ctxLogger.Fatalf("Verify cluster: %v", err)
+	}
 
-	// // Do controlplane upgrades only if cluster already exists and it is not a managed platform.
-	// if exists && !p.Meta().Managed {
-	// 	fmt.Printf("\nEnsuring that cluster controlplane is up to date.\n")
+	// Do controlplane upgrades only if cluster already exists and it is not a managed platform.
+	if exists && !c.Managed() {
+		fmt.Printf("\nEnsuring that cluster controlplane is up to date.\n")
 
-	// 	cu := controlplaneUpdater{
-	// 		kubeconfigPath: kubeconfigPath,
-	// 		assetDir:       assetDir,
-	// 		ctxLogger:      *ctxLogger,
-	// 		ex:             *ex,
-	// 	}
+		cu := controlplaneUpdater{
+			kubeconfigPath: kubeconfigPath,
+			assetDir:       assetDir,
+			ctxLogger:      *ctxLogger,
+			ex:             *ex,
+		}
 
-	// 	releases := []string{"pod-checkpointer", "kube-apiserver", "kubernetes", "calico"}
+		// releases := []string{"pod-checkpointer", "kube-apiserver", "kubernetes", "calico"}
+		var releases []string
+		for _, r := range c.ControlPlaneCharts() {
+			// Don't upgrade self-hosted kubelets unless requested by user.
+			if r == "kubelet" && !upgradeKubelets {
+				continue
+			}
+			releases = append(releases, r)
+		}
 
-	// 	if upgradeKubelets {
-	// 		releases = append(releases, "kubelet")
-	// 	}
+		for _, c := range releases {
+			cu.upgradeComponent(c)
+		}
+	}
 
-	// 	for _, c := range releases {
-	// 		cu.upgradeComponent(c)
-	// 	}
-	// }
+	if skipComponents {
+		return
+	}
 
-	// if skipComponents {
-	// 	return
-	// }
+	componentsToApply := []string{}
+	for _, component := range cc.RootConfig.Components {
+		componentsToApply = append(componentsToApply, component.Name)
+	}
 
-	// componentsToApply := []string{}
-	// for _, component := range lokoConfig.RootConfig.Components {
-	// 	componentsToApply = append(componentsToApply, component.Name)
-	// }
+	ctxLogger.Println("Applying component configuration")
 
-	// ctxLogger.Println("Applying component configuration")
-
-	// if len(componentsToApply) > 0 {
-	// 	if err := applyComponents(lokoConfig, kubeconfigPath, componentsToApply...); err != nil {
-	// 		ctxLogger.Fatalf("Applying component configuration failed: %v", err)
-	// 	}
-	// }
+	if len(componentsToApply) > 0 {
+		if err := applyComponents(cc, kubeconfigPath, componentsToApply...); err != nil {
+			ctxLogger.Fatalf("Applying component configuration failed: %v", err)
+		}
+	}
 }
 
 func verifyCluster(kubeconfigPath string, expectedNodes int) error {

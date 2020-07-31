@@ -163,6 +163,10 @@ func (c *Cluster) ControlPlaneCharts() []string {
 	return charts
 }
 
+func (c *Cluster) Managed() bool {
+	return false
+}
+
 func (c *Cluster) Nodes() int {
 	nodes := c.Config.ControllerCount
 	for _, workerpool := range c.Config.WorkerPools {
@@ -173,11 +177,22 @@ func (c *Cluster) Nodes() int {
 }
 
 func (c *Cluster) TerraformExecutionPlan() []platform.TerraformExecutionStep {
+	// DNS provider isn't "manual" - create all infrastructure in a single step.
+	if c.Config.DNS.Provider != dns.Manual {
+		return []platform.TerraformExecutionStep{
+			platform.TerraformExecutionStep{
+				Description: "Create infrastructure",
+				Args:        []string{"apply", "-auto-approve"},
+			},
+		}
+	}
+
+	// DNS provider is "manual" - create infrastructure in multiple steps to allow prompting the
+	// user for manual DNS creation.
 	plan := []platform.TerraformExecutionStep{}
 
 	controllers := fmt.Sprintf("-target=module.packet-%s.packet_device.controllers",
 		c.Config.ClusterName)
-
 	plan = append(plan, platform.TerraformExecutionStep{
 		Description: "Create controllers",
 		Args:        []string{"apply", "-auto-approve", controllers},
@@ -196,15 +211,11 @@ func (c *Cluster) TerraformExecutionPlan() []platform.TerraformExecutionStep {
 		Args:        []string{"refresh"},
 	})
 
-	s := platform.TerraformExecutionStep{
-		Description: "Complete infrastructure creation",
-		Args:        []string{"apply", "-auto-approve"},
-	}
-	// Prompt for manual DNS configuration only when DNS provider is "manual".
-	if c.Config.DNS.Provider == dns.Manual {
-		s.PreExecutionHook = dns.ManualConfigPrompt(&c.Config.DNS)
-	}
-	plan = append(plan, s)
+	plan = append(plan, platform.TerraformExecutionStep{
+		Description:      "Complete infrastructure creation",
+		Args:             []string{"apply", "-auto-approve"},
+		PreExecutionHook: dns.ManualConfigPrompt(&c.Config.DNS),
+	})
 
 	return plan
 }
