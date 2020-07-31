@@ -15,14 +15,24 @@
 package cmd
 
 import (
+	"fmt"
+	"io/ioutil"
+	"os"
+	"text/tabwriter"
+
+	"github.com/kinvolk/lokomotive/pkg/config"
+	"github.com/kinvolk/lokomotive/pkg/k8sutil"
+	"github.com/kinvolk/lokomotive/pkg/lokomotive"
+	"github.com/mitchellh/go-homedir"
+	log "github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var healthCmd = &cobra.Command{
 	Use:   "health",
 	Short: "Get the health of a cluster",
 	Run:   runHealth,
-	// PersistentPreRunE: doesKubeconfigExist,
 }
 
 func init() {
@@ -30,81 +40,95 @@ func init() {
 }
 
 func runHealth(cmd *cobra.Command, args []string) {
-	// contextLogger := log.WithFields(log.Fields{
-	// 	"command": "lokoctl health",
-	// 	"args":    args,
-	// })
+	contextLogger := log.WithFields(log.Fields{
+		"command": "lokoctl health",
+		"args":    args,
+	})
 
-	// kubeconfig, err := getKubeconfig()
-	// if err != nil {
-	// 	contextLogger.Fatalf("Error in finding kubeconfig file: %s", err)
-	// }
+	// Read cluster config from HCL files.
+	cp := viper.GetString("lokocfg")
+	vp := viper.GetString("lokocfg-vars")
+	cc, diags := config.Read(cp, vp)
+	if len(diags) > 0 {
+		contextLogger.Fatal(diags)
+	}
+	if cc.RootConfig.Cluster == nil {
+		// No `cluster` block specified in the configuration.
+		contextLogger.Fatal("No cluster configured")
+	}
 
-	// kubeconfigContent, err := ioutil.ReadFile(kubeconfig) // #nosec G304
-	// if err != nil {
-	// 	contextLogger.Fatalf("Failed to read kubeconfig file: %v", err)
-	// }
+	// Construct a Cluster.
+	c, diags := createCluster(cc)
+	if diags.HasErrors() {
+		for _, diagnostic := range diags {
+			contextLogger.Error(diagnostic.Error())
+		}
+		contextLogger.Fatal("Errors found while loading cluster configuration")
+	}
 
-	// cs, err := k8sutil.NewClientset(kubeconfigContent)
-	// if err != nil {
-	// 	contextLogger.Fatalf("Error in creating setting up Kubernetes client: %q", err)
-	// }
+	assetDir, err := homedir.Expand(c.AssetDir())
+	if err != nil {
+		contextLogger.Fatalf("Error expanding path: %v", err)
+	}
 
-	// p, diags := getConfiguredPlatform()
-	// if diags.HasErrors() {
-	// 	for _, diagnostic := range diags {
-	// 		contextLogger.Error(diagnostic.Error())
-	// 	}
-	// 	contextLogger.Fatal("Errors found while loading cluster configuration")
-	// }
+	kubeconfig, err := getKubeconfig(assetDir)
+	if err != nil {
+		contextLogger.Fatalf("Error in finding kubeconfig file: %s", err)
+	}
 
-	// if p == nil {
-	// 	contextLogger.Fatal("No cluster configured")
-	// }
+	kubeconfigContent, err := ioutil.ReadFile(kubeconfig) // #nosec G304
+	if err != nil {
+		contextLogger.Fatalf("Failed to read kubeconfig file: %v", err)
+	}
 
-	// cluster, err := lokomotive.NewCluster(cs, p.Meta().ExpectedNodes)
-	// if err != nil {
-	// 	contextLogger.Fatalf("Error in creating new Lokomotive cluster: %q", err)
-	// }
+	cs, err := k8sutil.NewClientset(kubeconfigContent)
+	if err != nil {
+		contextLogger.Fatalf("Error in creating setting up Kubernetes client: %q", err)
+	}
 
-	// ns, err := cluster.GetNodeStatus()
-	// if err != nil {
-	// 	contextLogger.Fatalf("Error getting node status: %q", err)
-	// }
+	cluster, err := lokomotive.NewCluster(cs, c.Nodes())
+	if err != nil {
+		contextLogger.Fatalf("Error in creating new Lokomotive cluster: %q", err)
+	}
 
-	// ns.PrettyPrint()
+	ns, err := cluster.GetNodeStatus()
+	if err != nil {
+		contextLogger.Fatalf("Error getting node status: %q", err)
+	}
 
-	// if !ns.Ready() {
-	// 	contextLogger.Fatalf("The cluster is not completely ready.")
-	// }
+	ns.PrettyPrint()
 
-	// components, err := cluster.Health()
-	// if err != nil {
-	// 	contextLogger.Fatalf("Error in getting Lokomotive cluster health: %q", err)
-	// }
+	if !ns.Ready() {
+		contextLogger.Fatalf("The cluster is not completely ready.")
+	}
 
-	// w := tabwriter.NewWriter(os.Stdout, 0, 0, 4, ' ', 0)
+	components, err := cluster.Health()
+	if err != nil {
+		contextLogger.Fatalf("Error in getting Lokomotive cluster health: %q", err)
+	}
 
-	// // Print the header.
-	// fmt.Fprintln(w, "Name\tStatus\tMessage\tError\t")
+	w := tabwriter.NewWriter(os.Stdout, 0, 0, 4, ' ', 0)
 
-	// // An empty line between header and the body.
-	// fmt.Fprintln(w, "\t\t\t\t")
+	// Print the header.
+	fmt.Fprintln(w, "Name\tStatus\tMessage\tError\t")
 
-	// for _, component := range components {
+	// An empty line between header and the body.
+	fmt.Fprintln(w, "\t\t\t\t")
 
-	// 	// The client-go library defines only one `ComponenetConditionType` at the moment,
-	// 	// which is `ComponentHealthy`. However, iterating over the list keeps this from
-	// 	// breaking in case client-go adds another `ComponentConditionType`.
-	// 	for _, condition := range component.Conditions {
-	// 		line := fmt.Sprintf(
-	// 			"%s\t%s\t%s\t%s\t",
-	// 			component.Name, condition.Status, condition.Message, condition.Error,
-	// 		)
+	for _, component := range components {
 
-	// 		fmt.Fprintln(w, line)
-	// 	}
+		// The client-go library defines only one `ComponenetConditionType` at the moment,
+		// which is `ComponentHealthy`. However, iterating over the list keeps this from
+		// breaking in case client-go adds another `ComponentConditionType`.
+		for _, condition := range component.Conditions {
+			line := fmt.Sprintf(
+				"%s\t%s\t%s\t%s\t",
+				component.Name, condition.Status, condition.Message, condition.Error,
+			)
 
-	// 	w.Flush()
-	// }
+			fmt.Fprintln(w, line)
+		}
+
+		w.Flush()
+	}
 }
