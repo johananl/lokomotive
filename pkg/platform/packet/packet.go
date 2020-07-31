@@ -24,7 +24,7 @@ import (
 
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
-	"github.com/kinvolk/lokomotive/pkg/config"
+	clusterconfig "github.com/kinvolk/lokomotive/pkg/config"
 	"github.com/kinvolk/lokomotive/pkg/dns"
 	"github.com/kinvolk/lokomotive/pkg/oidc"
 	"github.com/kinvolk/lokomotive/pkg/platform"
@@ -59,7 +59,7 @@ type workerPool struct {
 	NodesDependOn         []string          // Not exposed to the user
 }
 
-type Config struct {
+type config struct {
 	AssetDir                 string            `hcl:"asset_dir"`
 	AuthToken                string            `hcl:"auth_token,optional"`
 	ClusterName              string            `hcl:"cluster_name"`
@@ -108,16 +108,16 @@ type Config struct {
 // }
 
 // validate validates the provided Config.
-func validate(c *Config) hcl.Diagnostics {
+func validate(c *config) hcl.Diagnostics {
 	return nil
 }
 
 // newConfig creates a new Config and returns a pointer to it as well as any HCL diagnostics.
-func newConfig(b *hcl.Body, ctx *hcl.EvalContext) (*Config, hcl.Diagnostics) {
+func newConfig(b *hcl.Body, ctx *hcl.EvalContext) (*config, hcl.Diagnostics) {
 	diags := hcl.Diagnostics{}
 
 	// Create config with default values.
-	c := &Config{
+	c := &config{
 		EnableAggregation: true,
 	}
 
@@ -146,17 +146,17 @@ func newConfig(b *hcl.Body, ctx *hcl.EvalContext) (*Config, hcl.Diagnostics) {
 // Cluster implements the Cluster interface for Packet.
 type Cluster struct {
 	// TODO: Make private?
-	Config *Config
+	config *config
 }
 
 func (c *Cluster) AssetDir() string {
-	return c.Config.AssetDir
+	return c.config.AssetDir
 }
 
 func (c *Cluster) ControlPlaneCharts() []string {
 	charts := platform.CommonControlPlaneCharts
 	charts = append(charts, "calico-host-protection")
-	if !c.Config.DisableSelfHostedKubelet {
+	if !c.config.DisableSelfHostedKubelet {
 		charts = append(charts, "kubelet")
 	}
 
@@ -168,8 +168,8 @@ func (c *Cluster) Managed() bool {
 }
 
 func (c *Cluster) Nodes() int {
-	nodes := c.Config.ControllerCount
-	for _, workerpool := range c.Config.WorkerPools {
+	nodes := c.config.ControllerCount
+	for _, workerpool := range c.config.WorkerPools {
 		nodes += workerpool.Count
 	}
 
@@ -178,7 +178,7 @@ func (c *Cluster) Nodes() int {
 
 func (c *Cluster) TerraformExecutionPlan() []platform.TerraformExecutionStep {
 	// DNS provider isn't "manual" - create all infrastructure in a single step.
-	if c.Config.DNS.Provider != dns.Manual {
+	if c.config.DNS.Provider != dns.Manual {
 		return []platform.TerraformExecutionStep{
 			platform.TerraformExecutionStep{
 				Description: "Create infrastructure",
@@ -192,7 +192,7 @@ func (c *Cluster) TerraformExecutionPlan() []platform.TerraformExecutionStep {
 	plan := []platform.TerraformExecutionStep{}
 
 	controllers := fmt.Sprintf("-target=module.packet-%s.packet_device.controllers",
-		c.Config.ClusterName)
+		c.config.ClusterName)
 	plan = append(plan, platform.TerraformExecutionStep{
 		Description: "Create controllers",
 		Args:        []string{"apply", "-auto-approve", controllers},
@@ -214,7 +214,7 @@ func (c *Cluster) TerraformExecutionPlan() []platform.TerraformExecutionStep {
 	plan = append(plan, platform.TerraformExecutionStep{
 		Description:      "Complete infrastructure creation",
 		Args:             []string{"apply", "-auto-approve"},
-		PreExecutionHook: dns.ManualConfigPrompt(&c.Config.DNS),
+		PreExecutionHook: dns.ManualConfigPrompt(&c.config.DNS),
 	})
 
 	return plan
@@ -226,32 +226,32 @@ func (c *Cluster) TerraformRootModule() (string, error) {
 		return "", fmt.Errorf("parsing template: %v", err)
 	}
 
-	keyListBytes, err := json.Marshal(c.Config.SSHPubKeys)
+	keyListBytes, err := json.Marshal(c.config.SSHPubKeys)
 	if err != nil {
 		return "", fmt.Errorf("marshaling SSH public keys: %v", err)
 	}
 
-	managementCIDRs, err := json.Marshal(c.Config.ManagementCIDRs)
+	managementCIDRs, err := json.Marshal(c.config.ManagementCIDRs)
 	if err != nil {
 		return "", fmt.Errorf("marshaling management CIDRs: %v", err)
 	}
 
 	// Configure OIDC flags and set them to KubeAPIServerExtraFlags.
-	if c.Config.OIDC != nil {
+	if c.config.OIDC != nil {
 		// Skipping the error checking here because its done in checkValidConfig().
-		domain := fmt.Sprintf("%s.%s", c.Config.ClusterName, c.Config.DNS.Zone)
-		oidcFlags, _ := c.Config.OIDC.ToKubeAPIServerFlags(domain)
+		domain := fmt.Sprintf("%s.%s", c.config.ClusterName, c.config.DNS.Zone)
+		oidcFlags, _ := c.config.OIDC.ToKubeAPIServerFlags(domain)
 		//TODO: Use append instead of setting the oidcFlags to KubeAPIServerExtraFlags
 		// append is not used for now because Initialize is called in cli/cmd/cluster.go
 		// and again in Apply which duplicates the values.
-		c.Config.KubeAPIServerExtraFlags = oidcFlags
+		c.config.KubeAPIServerExtraFlags = oidcFlags
 	}
 
 	// Packet does not accept tags as a key-value map but as an array of
 	// strings.
-	platform.AppendVersionTag(&c.Config.Tags)
+	platform.AppendVersionTag(&c.config.Tags)
 	tagsList := []string{}
-	for k, v := range c.Config.Tags {
+	for k, v := range c.config.Tags {
 		tagsList = append(tagsList, fmt.Sprintf("%s:%s", k, v))
 	}
 	sort.Strings(tagsList)
@@ -261,23 +261,23 @@ func (c *Cluster) TerraformRootModule() (string, error) {
 	}
 
 	// Append lokoctl-version tag to all worker pools.
-	for i := range c.Config.WorkerPools {
+	for i := range c.config.WorkerPools {
 		// Using index as we are using []workerPool which creates a copy of the slice
 		// Hence when the template is rendered worker pool Tags is empty.
 		// TODO: Add tests for validating the worker pool configuration.
-		platform.AppendVersionTag(&c.Config.WorkerPools[i].Tags)
+		platform.AppendVersionTag(&c.config.WorkerPools[i].Tags)
 	}
 	// Add explicit terraform dependencies for nodes with specific hw
 	// reservation UUIDs.
-	terraformAddDeps(c.Config)
+	terraformAddDeps(c.config)
 
 	terraformCfg := struct {
-		Config          Config
+		Config          config
 		Tags            string
 		SSHPublicKeys   string
 		ManagementCIDRs string
 	}{
-		Config:          *c.Config,
+		Config:          *c.config,
 		Tags:            string(tags),
 		SSHPublicKeys:   string(keyListBytes),
 		ManagementCIDRs: string(managementCIDRs),
@@ -292,12 +292,12 @@ func (c *Cluster) TerraformRootModule() (string, error) {
 }
 
 func (c *Cluster) Validate() error {
-	if c.Config.AuthToken == "" && os.Getenv("PACKET_AUTH_TOKEN") == "" {
+	if c.config.AuthToken == "" && os.Getenv("PACKET_AUTH_TOKEN") == "" {
 		return fmt.Errorf("cannot find the Packet authentication token:\n" +
 			"either specify AuthToken or use the PACKET_AUTH_TOKEN environment variable")
 	}
 
-	if err := c.Config.DNS.Validate(); err != nil {
+	if err := c.config.DNS.Validate(); err != nil {
 		return fmt.Errorf("parsing DNS configuration failed: %v", err)
 	}
 
@@ -306,13 +306,13 @@ func (c *Cluster) Validate() error {
 
 // NewCluster constructs a Cluster based on the provided cluster config and returns a pointer to
 // it.
-func NewCluster(config *config.Config) (*Cluster, hcl.Diagnostics) {
+func NewCluster(config *clusterconfig.Config) (*Cluster, hcl.Diagnostics) {
 	c, diag := newConfig(&config.RootConfig.Cluster.Config, config.EvalContext)
 	if len(diag) > 0 {
 		return nil, diag
 	}
 
-	return &Cluster{Config: c}, nil
+	return &Cluster{config: c}, nil
 }
 
 // func (c *config) LoadConfig(configBody *hcl.Body, evalContext *hcl.EvalContext) hcl.Diagnostics {
@@ -525,7 +525,7 @@ func NewCluster(config *config.Config) (*Cluster, hcl.Diagnostics) {
 // node. This race condition is best explained here, if you want more info:
 // https://github.com/terraform-providers/terraform-provider-packet/issues/176
 // https://github.com/terraform-providers/terraform-provider-packet/pull/208
-func terraformAddDeps(c *Config) {
+func terraformAddDeps(c *config) {
 	// Nodes with specific hw reservation IDs.
 	nodesWithRes := make([]string, 0)
 
