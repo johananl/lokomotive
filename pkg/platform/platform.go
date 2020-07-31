@@ -54,12 +54,6 @@ type TerraformExecutionStep struct {
 
 // Cluster describes a Lokomotive cluster.
 type Cluster interface {
-	// LoadConfig(*hcl.Body, *hcl.EvalContext) hcl.Diagnostics
-	// Apply(*terraform.Executor) error
-	// Destroy(*terraform.Executor) error
-	// Initialize(*terraform.Executor) error
-	// Meta() Meta
-
 	// AssetDir returns the path to the Lokomotive assets directory.
 	AssetDir() string
 	// ControlPlaneCharts returns a list of Helm charts which compose the k8s control plane.
@@ -84,60 +78,6 @@ type Cluster interface {
 	// Validate validates the cluster configuration.
 	Validate() error
 }
-
-// // NewCluster constructs a Cluster based on the provided platform name and
-// // cluster config and returns a pointer to it. If a platform with the provided
-// // name doesn't exist, an error is returned.
-// func NewCluster(platform string, config *config.Config) (Cluster, hcl.Diagnostics) {
-// 	switch platform {
-// 	case Packet:
-// 		// TODO: Don't import packet package here. It creates a potential for an import cycle.
-// 		c, diag := packet.NewConfig(&config.RootConfig.Cluster.Config, config.EvalContext)
-// 		if len(diag) > 0 {
-// 			return nil, diag
-// 		}
-
-// 		return packet.New(c), nil
-// 	}
-// 	// TODO: Add all platforms.
-
-// 	return nil, hcl.Diagnostics{&hcl.Diagnostic{
-// 		Severity: hcl.DiagError,
-// 		Summary:  fmt.Sprintf("unknown platform %q", platform),
-// 	}}
-// }
-
-// Meta is a generic information format about the platform.
-type Meta struct {
-	AssetDir      string
-	ExpectedNodes int
-	Managed       bool
-}
-
-// platforms is a collection where all platforms gets automatically registered
-// var platforms map[string]Platform
-
-// initialize package's global variable when package is imported
-// func init() {
-// 	platforms = make(map[string]Platform)
-// }
-
-// Register adds platform into internal map
-// func Register(name string, p Platform) {
-// 	if _, exists := platforms[name]; exists {
-// 		panic(fmt.Sprintf("platform with name %q registered already", name))
-// 	}
-// 	platforms[name] = p
-// }
-
-// GetPlatform returns platform based on the name
-// func GetPlatform(name string) (Platform, error) {
-// 	platform, exists := platforms[name]
-// 	if !exists {
-// 		return nil, fmt.Errorf("no platform with name %q found", name)
-// 	}
-// 	return platform, nil
-// }
 
 // AppendVersionTag appends the lokoctl-version tag to a given tags map.
 func AppendVersionTag(tags *map[string]string) {

@@ -51,46 +51,6 @@ func getConfiguredBackend(lokoConfig *config.Config) (backend.Backend, hcl.Diagn
 	return backend, backend.LoadConfig(&lokoConfig.RootConfig.Backend.Config, lokoConfig.EvalContext)
 }
 
-// getConfiguredPlatform loads a platform from the given configuration file.
-// func getConfiguredPlatform() (platform.Platform, hcl.Diagnostics) {
-// 	lokoConfig, diags := getLokoConfig()
-// 	if diags.HasErrors() {
-// 		return nil, diags
-// 	}
-
-// 	if lokoConfig.RootConfig.Cluster == nil {
-// 		// No cluster defined and no configuration error
-// 		return nil, hcl.Diagnostics{}
-// 	}
-
-// 	platform, err := platform.GetPlatform(lokoConfig.RootConfig.Cluster.Name)
-// 	if err != nil {
-// 		diag := &hcl.Diagnostic{
-// 			Severity: hcl.DiagError,
-// 			Summary:  err.Error(),
-// 		}
-// 		return nil, hcl.Diagnostics{diag}
-// 	}
-
-// 	return platform, platform.LoadConfig(&lokoConfig.RootConfig.Cluster.Config, lokoConfig.EvalContext)
-// }
-
-// getAssetDir extracts the asset path from the cluster configuration.
-// It is empty if there is no cluster defined. An error is returned if the
-// cluster configuration has problems.
-// func getAssetDir() (string, error) {
-// 	cfg, diags := getConfiguredPlatform()
-// 	if diags.HasErrors() {
-// 		return "", fmt.Errorf("cannot load config: %s", diags)
-// 	}
-// 	if cfg == nil {
-// 		// No cluster defined and no configuration error
-// 		return "", nil
-// 	}
-
-// 	return cfg.Meta().AssetDir, nil
-// }
-
 // expandKubeconfigPath tries to expand ~ in the given kubeconfig path.
 // However, if that fails, it just returns original path as the best effort.
 func expandKubeconfigPath(path string) string {
@@ -143,11 +103,6 @@ func pickString(options ...string) string {
 //
 // If no configuration is defined, empty string is returned.
 func assetsKubeconfigPath(assetDir string) (string, error) {
-	// assetDir, err := getAssetDir()
-	// if err != nil {
-	// 	return "", err
-	// }
-
 	if assetDir != "" {
 		return assetsKubeconfig(assetDir), nil
 	}
@@ -158,23 +113,6 @@ func assetsKubeconfigPath(assetDir string) (string, error) {
 func assetsKubeconfig(assetDir string) string {
 	return filepath.Join(assetDir, "cluster-assets", "auth", "kubeconfig")
 }
-
-// doesKubeconfigExist checks if the kubeconfig provided by user exists
-// func doesKubeconfigExist(*cobra.Command, []string) error {
-// 	var err error
-// 	kubeconfig, err := getKubeconfig()
-// 	if err != nil {
-// 		return err
-// 	}
-// 	if _, err = os.Stat(kubeconfig); os.IsNotExist(err) {
-// 		return fmt.Errorf("Kubeconfig %q not found", kubeconfig)
-// 	}
-// 	return err
-// }
-
-// func getLokoConfig() (*config.Config, hcl.Diagnostics) {
-// 	return config.LoadConfig(viper.GetString("lokocfg"), viper.GetString("lokocfg-vars"))
-// }
 
 // askForConfirmation asks the user to confirm an action.
 // It prints the message and then asks the user to type "yes" or "no".
