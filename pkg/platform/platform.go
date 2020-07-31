@@ -15,6 +15,7 @@
 package platform
 
 import (
+	"github.com/kinvolk/lokomotive/pkg/terraform"
 	"github.com/kinvolk/lokomotive/pkg/version"
 )
 
@@ -32,6 +33,25 @@ var CommonControlPlaneCharts = []string{
 	"pod-checkpointer",
 }
 
+// TerraformExecutionStep represents a step in a Terraform execution plan.
+type TerraformExecutionStep struct {
+	// A short string describing the step in a way that is meaningful to the user. When a step
+	// fails to execute, the description can be included in an error to let the user know exactly
+	// what failed. Examples: "Create DNS resources", "Deploy virtual machines".
+	Description string
+	// A list of arguments to be passed to the `terraform` command. Note that for "apply" commands
+	// the "-auto-approve" argument should always be included to avoid halting the Terraform
+	// execution with interactive prompts.
+	// Examples:
+	// - []string{"apply", "-target=module.foo", "-auto-approve"}
+	// - []string{"refresh"}
+	// - []string{"apply", "-auto-approve"}
+	Args []string
+	// A function which should be run prior to executing the Terraform command. If specified and
+	// the function returns an error, execution is halted.
+	PreExecutionHook func(*terraform.Executor) error
+}
+
 // Cluster describes a Lokomotive cluster.
 type Cluster interface {
 	// LoadConfig(*hcl.Body, *hcl.EvalContext) hcl.Diagnostics
@@ -47,28 +67,15 @@ type Cluster interface {
 	Nodes() int
 	// ControlPlaneCharts returns a list of Helm charts which compose the k8s control plane.
 	ControlPlaneCharts() []string
-	// TerraformExecutionPlan returns a list of Terraform commands which should be executed to get
-	// a working cluster on a platform. The execution plan is used during cluster creation only.
-	// When destroying a cluster, a simple `terraform destroy` is always executed.
+	// TerraformExecutionPlan returns a list of TerraformExecutionSteps representing steps which
+	// should be executed to get a working cluster on a platform. The execution plan is used during
+	// cluster creation only - when destroying a cluster, a simple `terraform destroy` is always
+	// executed.
 	//
-	// Each command is a slice of strings where each string is one argument. Following is a sample
-	// value:
-	//
-	// [][]string{
-	// 	// Apply a specific resource.
-	// 	[]string{"apply", "-auto-approve", "-target=packet_device.foo"},
-	// 	// Apply a specific module.
-	// 	[]string{"apply", "-auto-approve", "-target=module.bar"},
-	// 	// Perform a Terraform refresh.
-	// 	[]string{"refresh"},
-	// 	// Apply the entire root module.
-	// 	[]string{"apply", "-auto-approve"},
-	// }
-	//
+	// The commands specified in the Args field of each TerraformExecutionStep are passed as
+	// arguments to the `terraform` binary and are executed in order.
 	// `apply` operations should be followed by `-auto-approve` to skip interactive prompts.
-	//
-	// The commands are passed as arguments to the `terraform` binary and are executed in order.
-	TerraformExecutionPlan() [][]string
+	TerraformExecutionPlan() []TerraformExecutionStep
 	// TerraformRootModule returns a string representing the contens of the root Terraform module
 	// which should be used for cluster operations.
 	TerraformRootModule() (string, error)

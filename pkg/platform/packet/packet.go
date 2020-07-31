@@ -172,9 +172,41 @@ func (c *Cluster) Nodes() int {
 	return nodes
 }
 
-func (c *Cluster) TerraformExecutionPlan() [][]string {
-	// TODO: Implement.
-	return [][]string{}
+func (c *Cluster) TerraformExecutionPlan() []platform.TerraformExecutionStep {
+	plan := []platform.TerraformExecutionStep{}
+
+	controllers := fmt.Sprintf("-target=module.packet-%s.packet_device.controllers",
+		c.Config.ClusterName)
+
+	plan = append(plan, platform.TerraformExecutionStep{
+		Description: "Create controllers",
+		Args:        []string{"apply", "-auto-approve", controllers},
+	})
+
+	plan = append(plan, platform.TerraformExecutionStep{
+		Description: "Create DNS records",
+		Args:        []string{"apply", "-auto-approve", "-target=module.dns"},
+	})
+
+	// Run `terraform refresh`. This is required in order to make the outputs from the previous
+	// apply operations available.
+	// TODO: Likely caused by https://github.com/hashicorp/terraform/issues/23158.
+	plan = append(plan, platform.TerraformExecutionStep{
+		Description: "Refresh Terraform",
+		Args:        []string{"refresh"},
+	})
+
+	s := platform.TerraformExecutionStep{
+		Description: "Complete infrastructure creation",
+		Args:        []string{"apply", "-auto-approve"},
+	}
+	// Prompt for manual DNS configuration only when DNS provider is "manual".
+	if c.Config.DNS.Provider == dns.Manual {
+		s.PreExecutionHook = dns.ManualConfigPrompt(&c.Config.DNS)
+	}
+	plan = append(plan, s)
+
+	return plan
 }
 
 func (c *Cluster) TerraformRootModule() (string, error) {

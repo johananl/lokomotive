@@ -181,6 +181,8 @@ func runClusterApply(cmd *cobra.Command, args []string) {
 	exists := clusterExists(ctxLogger, ex)
 	if exists && !confirm {
 		// TODO: We could plan to a file and use it when installing.
+		// TODO: How does this play with a complex execution plan? Does a single "global" plan
+		// operation represent what's going to be applied?
 		if err := ex.Plan(); err != nil {
 			ctxLogger.Fatalf("Failed to reconcile cluster state: %v", err)
 		}
@@ -192,9 +194,20 @@ func runClusterApply(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	// if err := p.Apply(ex); err != nil {
-	// 	ctxLogger.Fatalf("error applying cluster: %v", err)
-	// }
+	for _, step := range c.TerraformExecutionPlan() {
+		if step.PreExecutionHook != nil {
+			ctxLogger.Printf("Running pre-execution hook for step %q", step.Description)
+			if err := step.PreExecutionHook(ex); err != nil {
+				ctxLogger.Fatalf("Pre-execution hook for step %q failed: %v", step.Description, err)
+			}
+		}
+
+		ctxLogger.Printf("Executing step %q", step.Description)
+		err := ex.Execute(step.Args...)
+		if err != nil {
+			ctxLogger.Fatalf("Execution of step %q failed: %v", step.Description, err)
+		}
+	}
 
 	fmt.Printf("\nYour configurations are stored in %s\n", assetDir)
 
