@@ -58,13 +58,7 @@ func runHealth(cmd *cobra.Command, args []string) {
 	}
 
 	// Construct a Cluster.
-	c, diags := createCluster(cc)
-	if diags.HasErrors() {
-		for _, diagnostic := range diags {
-			contextLogger.Error(diagnostic.Error())
-		}
-		contextLogger.Fatal("Errors found while loading cluster configuration")
-	}
+	c := createCluster(contextLogger, cc)
 
 	assetDir, err := homedir.Expand(c.AssetDir())
 	if err != nil {

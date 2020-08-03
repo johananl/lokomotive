@@ -74,7 +74,7 @@ type Cluster interface {
 	TerraformExecutionPlan() []TerraformExecutionStep
 	// TerraformRootModule returns a string representing the contens of the root Terraform module
 	// which should be used for cluster operations.
-	TerraformRootModule() (string, error)
+	TerraformRootModule() string
 	// Validate validates the cluster configuration.
 	Validate() error
 }

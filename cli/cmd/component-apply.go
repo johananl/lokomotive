@@ -58,13 +58,7 @@ func runApply(cmd *cobra.Command, args []string) {
 	}
 
 	// Construct a Cluster.
-	c, diags := createCluster(cc)
-	if diags.HasErrors() {
-		for _, diagnostic := range diags {
-			contextLogger.Error(diagnostic.Error())
-		}
-		contextLogger.Fatal("Errors found while loading cluster configuration")
-	}
+	c := createCluster(contextLogger, cc)
 
 	var componentsToApply []string
 	if len(args) > 0 {

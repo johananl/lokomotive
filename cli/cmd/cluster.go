@@ -21,7 +21,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/hashicorp/hcl/v2"
 	"github.com/mitchellh/go-homedir"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -63,13 +62,7 @@ func initialize(ctxLogger *logrus.Entry) (*config.Config, platform.Cluster, *ter
 	}
 
 	// Construct a Cluster.
-	c, diags := createCluster(cc)
-	if diags.HasErrors() {
-		for _, diagnostic := range diags {
-			ctxLogger.Error(diagnostic.Error())
-		}
-		ctxLogger.Fatal("Errors found while loading cluster configuration")
-	}
+	c := createCluster(ctxLogger, cc)
 
 	// TODO: Refactor backend generation. We can probably render the backend config as part of the
 	// Terraform root module and get rid of the specialized backend-related functions.
@@ -139,12 +132,7 @@ func initialize(ctxLogger *logrus.Entry) (*config.Config, platform.Cluster, *ter
 	}
 
 	path := filepath.Join(terraformRootDir, "cluster.tf")
-	content, err := c.TerraformRootModule()
-	if err != nil {
-		ctxLogger.Fatalf("Failed to render Terraform root module: %v", err)
-	}
-
-	if err := writeToFile(path, content); err != nil {
+	if err := writeToFile(path, c.TerraformRootModule()); err != nil {
 		ctxLogger.Fatalf("Failed to write Terraform root module %q to disk: %v", path, err)
 	}
 
@@ -179,23 +167,31 @@ func clusterExists(ctxLogger *logrus.Entry, ex *terraform.Executor) bool {
 
 // createCluster constructs a Cluster based on the provided cluster config and returns a pointer to
 // it.
-func createCluster(config *config.Config) (platform.Cluster, hcl.Diagnostics) {
+func createCluster(logger *logrus.Entry, config *config.Config) platform.Cluster {
 	p := config.RootConfig.Cluster.Platform
 
 	switch p {
 	case platform.Packet:
-		c, diag := packet.NewCluster(config)
-		if len(diag) > 0 {
-			return nil, diag
+		pc, diags := packet.NewConfig(&config.RootConfig.Cluster.Config, config.EvalContext)
+		if diags.HasErrors() {
+			for _, diagnostic := range diags {
+				logger.Error(diagnostic.Error())
+			}
+			logger.Fatal("Errors found while loading cluster configuration")
 		}
-		return c, nil
+
+		c, err := packet.NewCluster(pc)
+		if err != nil {
+			logger.Fatalf("Error constructing cluster: %v", err)
+		}
+
+		return c
 	}
 	// TODO: Add all platforms.
 
-	return nil, hcl.Diagnostics{&hcl.Diagnostic{
-		Severity: hcl.DiagError,
-		Summary:  fmt.Sprintf("unknown platform %q", p),
-	}}
+	logger.Fatalf("Unknown platform %q", p)
+
+	return nil
 }
 
 type controlplaneUpdater struct {
