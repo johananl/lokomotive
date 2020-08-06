@@ -104,10 +104,7 @@ func runDelete(cmd *cobra.Command, args []string) {
 		return
 	}
 
-	kubeconfig, err := getKubeconfig(c.AssetDir())
-	if err != nil {
-		contextLogger.Fatalf("Error in finding kubeconfig file: %s", err)
-	}
+	kubeconfig := kubeconfigPath(c.AssetDir())
 
 	if err := deleteComponents(kubeconfig, componentsObjects...); err != nil {
 		contextLogger.Fatal(err)

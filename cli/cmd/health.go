@@ -65,10 +65,7 @@ func runHealth(cmd *cobra.Command, args []string) {
 		contextLogger.Fatalf("Error expanding path: %v", err)
 	}
 
-	kubeconfig, err := getKubeconfig(assetDir)
-	if err != nil {
-		contextLogger.Fatalf("Error in finding kubeconfig file: %s", err)
-	}
+	kubeconfig := kubeconfigPath(assetDir)
 
 	kubeconfigContent, err := ioutil.ReadFile(kubeconfig) // #nosec G304
 	if err != nil {

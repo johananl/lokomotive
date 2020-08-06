@@ -69,10 +69,7 @@ func runApply(cmd *cobra.Command, args []string) {
 		}
 	}
 
-	kubeconfig, err := getKubeconfig(c.AssetDir())
-	if err != nil {
-		contextLogger.Fatalf("Error in finding kubeconfig file: %s", err)
-	}
+	kubeconfig := kubeconfigPath(c.AssetDir())
 
 	if err := applyComponents(cc, kubeconfig, componentsToApply...); err != nil {
 		contextLogger.Fatal(err)

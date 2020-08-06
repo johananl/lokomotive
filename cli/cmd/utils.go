@@ -48,45 +48,45 @@ func expandKubeconfigPath(path string) string {
 // - Asset directory from cluster configuration.
 // - KUBECONFIG environment variable.
 // - ~/.kube/config path, which is the default for kubectl.
-func getKubeconfig(assetDir string) (string, error) {
-	assetKubeconfig, err := assetsKubeconfigPath(assetDir)
-	if err != nil {
-		return "", fmt.Errorf("reading kubeconfig path from configuration failed: %w", err)
+
+// kubeconfigPath returns a path to a kubeconfig file using the following order of precedence:
+// - The value provided via the --kubeconfig-file flag or the KUBECONFIG_FILE environment variable
+// (the latter is a side-effect of using Cobra/Viper and should NOT be documented because it's
+// confusing).
+// - The path to the kubeconfig file in the provided asset directory if assetDir is not an empty
+// string.
+// - The value provided via the KUBECONFIG environment variable.
+// - ~/.kube/config (the default path kubectl uses).
+func kubeconfigPath(assetDir string) string {
+	var assetPath string
+	if assetDir != "" {
+		assetPath = filepath.Join(assetDir, "cluster-assets", "auth", "kubeconfig")
 	}
 
 	paths := []string{
 		viper.GetString(kubeconfigFlag),
-		assetKubeconfig,
+		assetPath,
 		os.Getenv(kubeconfigEnvVariable),
 		defaultKubeconfigPath,
 	}
 
-	return expandKubeconfigPath(pickString(paths...)), nil
-}
-
-// pickString returns first non-empty string.
-func pickString(options ...string) string {
-	for _, option := range options {
-		if option != "" {
-			return option
+	var selected string
+	for _, p := range paths {
+		if p != "" {
+			selected = p
+			break
 		}
 	}
 
-	return ""
-}
-
-// assetsKubeconfigPath reads the lokocfg configuration and returns
-// the kubeconfig path defined in it.
-//
-// If no configuration is defined, empty string is returned.
-func assetsKubeconfigPath(assetDir string) (string, error) {
-	if assetDir != "" {
-		return assetsKubeconfig(assetDir), nil
+	if expandedPath, err := homedir.Expand(selected); err == nil {
+		return expandedPath
 	}
 
-	return "", nil
+	// Path expansion failed - fall back to an unexpanded path.
+	return selected
 }
 
+// assetsKubeconfig returns the path to the kubeconfig file inside the provided assets directory.
 func assetsKubeconfig(assetDir string) string {
 	return filepath.Join(assetDir, "cluster-assets", "auth", "kubeconfig")
 }
