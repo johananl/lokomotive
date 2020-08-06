@@ -37,6 +37,7 @@ import (
 	"github.com/kinvolk/lokomotive/pkg/components/util"
 	"github.com/kinvolk/lokomotive/pkg/config"
 	"github.com/kinvolk/lokomotive/pkg/platform"
+	"github.com/kinvolk/lokomotive/pkg/platform/aks"
 	"github.com/kinvolk/lokomotive/pkg/platform/packet"
 	"github.com/kinvolk/lokomotive/pkg/terraform"
 )
@@ -161,6 +162,21 @@ func createCluster(logger *logrus.Entry, config *config.Config) platform.Cluster
 		}
 
 		c, err := packet.NewCluster(pc)
+		if err != nil {
+			logger.Fatalf("Error constructing cluster: %v", err)
+		}
+
+		return c
+	case platform.AKS:
+		pc, diags := aks.NewConfig(&config.RootConfig.Cluster.Config, config.EvalContext)
+		if diags.HasErrors() {
+			for _, diagnostic := range diags {
+				logger.Error(diagnostic.Error())
+			}
+			logger.Fatal("Errors found while loading cluster configuration")
+		}
+
+		c, err := aks.NewCluster(pc)
 		if err != nil {
 			logger.Fatalf("Error constructing cluster: %v", err)
 		}

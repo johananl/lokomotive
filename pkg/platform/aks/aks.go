@@ -16,6 +16,27 @@
 // Azure AKS.
 package aks
 
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"text/template"
+
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/kinvolk/lokomotive/pkg/platform"
+)
+
+const (
+	// Environment variables used to load sensitive parts of the configuration.
+	clientIDEnv       = "LOKOMOTIVE_AKS_CLIENT_ID"
+	clientSecretEnv   = "LOKOMOTIVE_AKS_CLIENT_SECRET" // #nosec G101
+	subscriptionIDEnv = "LOKOMOTIVE_AKS_SUBSCRIPTION_ID"
+	tenantIDEnv       = "LOKOMOTIVE_AKS_TENANT_ID"
+
+	kubernetesVersion = "1.16.10"
+)
+
 // workerPool defines "worker_pool" block.
 type workerPool struct {
 	// Label field.
@@ -28,8 +49,7 @@ type workerPool struct {
 	Taints []string          `hcl:"taints,optional"`
 }
 
-// Platform implements the Platform interface for AKS.
-type Platform struct {
+type Config struct {
 	AssetDir    string            `hcl:"asset_dir,optional"`
 	ClusterName string            `hcl:"cluster_name,optional"`
 	Tags        map[string]string `hcl:"tags,optional"`
@@ -53,299 +73,279 @@ type Platform struct {
 	KubernetesVersion string
 }
 
-const (
-	name = "aks"
+// NewConfig creates a new Config and returns a pointer to it as well as any HCL diagnostics.
+func NewConfig(b *hcl.Body, ctx *hcl.EvalContext) (*Config, hcl.Diagnostics) {
+	diags := hcl.Diagnostics{}
 
-	// Environment variables used to load sensitive parts of the configuration.
-	clientIDEnv       = "LOKOMOTIVE_AKS_CLIENT_ID"
-	clientSecretEnv   = "LOKOMOTIVE_AKS_CLIENT_SECRET" // #nosec G101
-	subscriptionIDEnv = "LOKOMOTIVE_AKS_SUBSCRIPTION_ID"
-	tenantIDEnv       = "LOKOMOTIVE_AKS_TENANT_ID"
+	// Create config with default values.
+	c := &Config{
+		Location:            "West Europe",
+		ManageResourceGroup: true,
+		KubernetesVersion:   kubernetesVersion,
+	}
 
-	kubernetesVersion = "1.16.10"
-)
+	if b == nil {
+		return nil, hcl.Diagnostics{}
+	}
 
-func (p *Platform) ControlPlaneCharts() []string {
-	// TODO: Implement.
+	if d := gohcl.DecodeBody(*b, ctx, c); len(d) != 0 {
+		diags = append(diags, d...)
+		return nil, diags
+	}
+
+	if d := c.validate(); len(d) != 0 {
+		diags = append(diags, d...)
+		return nil, diags
+	}
+
+	if c.ClientSecret == "" {
+		c.ClientSecret = os.Getenv(clientSecretEnv)
+	}
+
+	if c.SubscriptionID == "" {
+		c.SubscriptionID = os.Getenv(subscriptionIDEnv)
+	}
+
+	if c.ClientID == "" {
+		c.ClientID = os.Getenv(clientIDEnv)
+	}
+
+	if c.TenantID == "" {
+		c.TenantID = os.Getenv(tenantIDEnv)
+	}
+
+	return c, diags
+}
+
+// Cluster implements the Cluster interface for AKS.
+type Cluster struct {
+	config *Config
+	// A string containing the rendered Terraform code of the root module.
+	rootModule string
+}
+
+func (c *Cluster) AssetDir() string {
+	return c.config.AssetDir
+}
+
+func (c *Cluster) ControlPlaneCharts() []string {
+	// AKS is a managed platform and therefore doesn't use the Lokomotive control plane.
 	return []string{}
 }
 
-func (p *Platform) TerraformExecutionPlan() [][]string {
-	// TODO: Implement.
-	return [][]string{}
+func (c *Cluster) Managed() bool {
+	return true
 }
 
-func (p *Platform) TerraformRootModule() string {
-	// TODO: Implement.
-	return ""
+func (c *Cluster) Nodes() int {
+	nodes := 0
+	for _, wp := range c.config.WorkerPools {
+		nodes += wp.Count
+	}
+
+	return nodes
 }
 
-// // init registers AKS as a platform.
-// func init() { //nolint:gochecknoinits
-// 	c := &config{
-// 		Location:            "West Europe",
-// 		ManageResourceGroup: true,
-// 		KubernetesVersion:   kubernetesVersion,
-// 	}
+func (c *Cluster) TerraformExecutionPlan() []platform.TerraformExecutionStep {
+	return []platform.TerraformExecutionStep{
+		platform.TerraformExecutionStep{
+			Description: "Create infrastructure",
+			Args:        []string{"apply", "-auto-approve"},
+		},
+	}
+}
 
-// 	platform.Register(name, c)
-// }
+func (c *Cluster) TerraformRootModule() string {
+	return c.rootModule
+}
 
-// // LoadConfig loads configuration values into the config struct from given HCL configuration.
-// func (c *config) LoadConfig(configBody *hcl.Body, evalContext *hcl.EvalContext) hcl.Diagnostics {
-// 	if configBody == nil {
-// 		emptyConfig := hcl.EmptyBody()
-// 		configBody = &emptyConfig
-// 	}
+func (c *Cluster) Validate() error {
+	return nil
+}
 
-// 	if d := gohcl.DecodeBody(*configBody, evalContext, c); d.HasErrors() {
-// 		return d
-// 	}
+// NewCluster constructs a Cluster based on the provided config and returns a pointer to it.
+func NewCluster(c *Config) (*Cluster, error) {
+	rendered, err := renderRootModule(c)
+	if err != nil {
+		return nil, fmt.Errorf("rendering root module: %v", err)
+	}
 
-// 	return c.checkValidConfig()
-// }
+	return &Cluster{config: c, rootModule: rendered}, nil
+}
 
-// // checkValidConfig validates cluster configuration.
-// func (c *config) checkValidConfig() hcl.Diagnostics {
-// 	var d hcl.Diagnostics
+// validate validates the cluster configuration.
+func (c *Config) validate() hcl.Diagnostics {
+	var d hcl.Diagnostics
 
-// 	d = append(d, c.checkNotEmptyWorkers()...)
-// 	d = append(d, c.checkWorkerPoolNamesUnique()...)
-// 	d = append(d, c.checkWorkerPools()...)
-// 	d = append(d, c.checkCredentials()...)
-// 	d = append(d, c.checkRequiredFields()...)
+	d = append(d, c.checkNotEmptyWorkers()...)
+	d = append(d, c.checkWorkerPoolNamesUnique()...)
+	d = append(d, c.checkWorkerPools()...)
+	d = append(d, c.checkCredentials()...)
+	d = append(d, c.checkRequiredFields()...)
 
-// 	return d
-// }
+	return d
+}
 
-// // checkWorkerPools validates all configured worker pool fields.
-// func (c *config) checkWorkerPools() hcl.Diagnostics {
-// 	var d hcl.Diagnostics
+// checkWorkerPools validates all configured worker pool fields.
+func (c *Config) checkWorkerPools() hcl.Diagnostics {
+	var d hcl.Diagnostics
 
-// 	for _, w := range c.WorkerPools {
-// 		if w.VMSize == "" {
-// 			d = append(d, &hcl.Diagnostic{
-// 				Severity: hcl.DiagError,
-// 				Summary:  fmt.Sprintf("pool %q: VMSize field can't be empty", w.Name),
-// 			})
-// 		}
+	for _, w := range c.WorkerPools {
+		if w.VMSize == "" {
+			d = append(d, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  fmt.Sprintf("pool %q: VMSize field can't be empty", w.Name),
+			})
+		}
 
-// 		if w.Count <= 0 {
-// 			d = append(d, &hcl.Diagnostic{
-// 				Severity: hcl.DiagError,
-// 				Summary:  fmt.Sprintf("pool %q: count must be bigger than 0", w.Name),
-// 			})
-// 		}
-// 	}
+		if w.Count <= 0 {
+			d = append(d, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  fmt.Sprintf("pool %q: count must be bigger than 0", w.Name),
+			})
+		}
+	}
 
-// 	return d
-// }
+	return d
+}
 
-// // checkRequiredFields checks if that all required fields are populated in the top level configuration.
-// func (c *config) checkRequiredFields() hcl.Diagnostics {
-// 	var d hcl.Diagnostics
+// checkRequiredFields checks if that all required fields are populated in the top level configuration.
+func (c *Config) checkRequiredFields() hcl.Diagnostics {
+	var d hcl.Diagnostics
 
-// 	if c.SubscriptionID == "" && os.Getenv(subscriptionIDEnv) == "" {
-// 		d = append(d, &hcl.Diagnostic{
-// 			Severity: hcl.DiagError,
-// 			Summary:  "cannot find the Azure subscription ID",
-// 			Detail: fmt.Sprintf("%q field is empty and %q environment variable "+
-// 				"is not defined. At least one of these should be defined",
-// 				"SubscriptionID", subscriptionIDEnv),
-// 		})
-// 	}
+	if c.SubscriptionID == "" && os.Getenv(subscriptionIDEnv) == "" {
+		d = append(d, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "cannot find the Azure subscription ID",
+			Detail: fmt.Sprintf("%q field is empty and %q environment variable "+
+				"is not defined. At least one of these should be defined",
+				"SubscriptionID", subscriptionIDEnv),
+		})
+	}
 
-// 	if c.TenantID == "" && os.Getenv(tenantIDEnv) == "" {
-// 		d = append(d, &hcl.Diagnostic{
-// 			Severity: hcl.DiagError,
-// 			Summary:  "cannot find the Azure client ID",
-// 			Detail: fmt.Sprintf("%q field is empty and %q environment variable "+
-// 				"is not defined. At least one of these should be defined", "TenantID", tenantIDEnv),
-// 		})
-// 	}
+	if c.TenantID == "" && os.Getenv(tenantIDEnv) == "" {
+		d = append(d, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "cannot find the Azure client ID",
+			Detail: fmt.Sprintf("%q field is empty and %q environment variable "+
+				"is not defined. At least one of these should be defined", "TenantID", tenantIDEnv),
+		})
+	}
 
-// 	f := map[string]string{
-// 		"AssetDir":          c.AssetDir,
-// 		"ClusterName":       c.ClusterName,
-// 		"ResourceGroupName": c.ResourceGroupName,
-// 	}
+	f := map[string]string{
+		"AssetDir":          c.AssetDir,
+		"ClusterName":       c.ClusterName,
+		"ResourceGroupName": c.ResourceGroupName,
+	}
 
-// 	for k, v := range f {
-// 		if v == "" {
-// 			d = append(d, &hcl.Diagnostic{
-// 				Severity: hcl.DiagError,
-// 				Summary:  fmt.Sprintf("field %q can't be empty", k),
-// 			})
-// 		}
-// 	}
+	for k, v := range f {
+		if v == "" {
+			d = append(d, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  fmt.Sprintf("field %q can't be empty", k),
+			})
+		}
+	}
 
-// 	return d
-// }
+	return d
+}
 
-// // checkCredentials checks if credentials are correctly defined.
-// func (c *config) checkCredentials() hcl.Diagnostics {
-// 	var d hcl.Diagnostics
+// checkCredentials checks if credentials are correctly defined.
+func (c *Config) checkCredentials() hcl.Diagnostics {
+	var d hcl.Diagnostics
 
-// 	// If the application name is defined, we assume that we work as a highly privileged
-// 	// account which has permissions to create new Azure AD application, so Client ID
-// 	// and Client Secret fields are not needed.
-// 	if c.ApplicationName != "" {
-// 		if c.ClientID != "" {
-// 			d = append(d, &hcl.Diagnostic{
-// 				Severity: hcl.DiagError,
-// 				Summary:  "ClientID and ApplicationName are mutually exclusive",
-// 			})
-// 		}
+	// If the application name is defined, we assume that we work as a highly privileged
+	// account which has permissions to create new Azure AD application, so Client ID
+	// and Client Secret fields are not needed.
+	if c.ApplicationName != "" {
+		if c.ClientID != "" {
+			d = append(d, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "ClientID and ApplicationName are mutually exclusive",
+			})
+		}
 
-// 		if c.ClientSecret != "" {
-// 			d = append(d, &hcl.Diagnostic{
-// 				Severity: hcl.DiagError,
-// 				Summary:  "ClientSecret and ApplicationName are mutually exclusive",
-// 			})
-// 		}
+		if c.ClientSecret != "" {
+			d = append(d, &hcl.Diagnostic{
+				Severity: hcl.DiagError,
+				Summary:  "ClientSecret and ApplicationName are mutually exclusive",
+			})
+		}
 
-// 		return d
-// 	}
+		return d
+	}
 
-// 	if c.ClientSecret == "" && os.Getenv(clientSecretEnv) == "" {
-// 		d = append(d, &hcl.Diagnostic{
-// 			Severity: hcl.DiagError,
-// 			Summary:  "cannot find the Azure client secret",
-// 			Detail: fmt.Sprintf("%q field is empty and %q environment variable "+
-// 				"is not defined. At least one of these should be defined", "ClientSecret", clientSecretEnv),
-// 		})
-// 	}
+	if c.ClientSecret == "" && os.Getenv(clientSecretEnv) == "" {
+		d = append(d, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "cannot find the Azure client secret",
+			Detail: fmt.Sprintf("%q field is empty and %q environment variable "+
+				"is not defined. At least one of these should be defined", "ClientSecret", clientSecretEnv),
+		})
+	}
 
-// 	if c.ClientID == "" && os.Getenv(clientIDEnv) == "" {
-// 		d = append(d, &hcl.Diagnostic{
-// 			Severity: hcl.DiagError,
-// 			Summary:  "cannot find the Azure client ID",
-// 			Detail: fmt.Sprintf("%q field is empty and %q environment variable is "+
-// 				"not defined. At least one of these should be defined", "ClientID", clientIDEnv),
-// 		})
-// 	}
+	if c.ClientID == "" && os.Getenv(clientIDEnv) == "" {
+		d = append(d, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "cannot find the Azure client ID",
+			Detail: fmt.Sprintf("%q field is empty and %q environment variable is "+
+				"not defined. At least one of these should be defined", "ClientID", clientIDEnv),
+		})
+	}
 
-// 	return d
-// }
+	return d
+}
 
-// // checkNotEmptyWorkers checks if the cluster has at least 1 node pool defined.
-// func (c *config) checkNotEmptyWorkers() hcl.Diagnostics {
-// 	var diagnostics hcl.Diagnostics
+// checkNotEmptyWorkers checks if the cluster has at least 1 node pool defined.
+func (c *Config) checkNotEmptyWorkers() hcl.Diagnostics {
+	var diagnostics hcl.Diagnostics
 
-// 	if len(c.WorkerPools) == 0 {
-// 		diagnostics = append(diagnostics, &hcl.Diagnostic{
-// 			Severity: hcl.DiagError,
-// 			Summary:  "At least one worker pool must be defined",
-// 			Detail:   "Make sure to define at least one worker pool block in your cluster block",
-// 		})
-// 	}
+	if len(c.WorkerPools) == 0 {
+		diagnostics = append(diagnostics, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "At least one worker pool must be defined",
+			Detail:   "Make sure to define at least one worker pool block in your cluster block",
+		})
+	}
 
-// 	return diagnostics
-// }
+	return diagnostics
+}
 
-// // checkWorkerPoolNamesUnique verifies that all worker pool names are unique.
-// func (c *config) checkWorkerPoolNamesUnique() hcl.Diagnostics {
-// 	var diagnostics hcl.Diagnostics
+// checkWorkerPoolNamesUnique verifies that all worker pool names are unique.
+func (c *Config) checkWorkerPoolNamesUnique() hcl.Diagnostics {
+	var diagnostics hcl.Diagnostics
 
-// 	dup := make(map[string]bool)
+	dup := make(map[string]bool)
 
-// 	for _, w := range c.WorkerPools {
-// 		if !dup[w.Name] {
-// 			dup[w.Name] = true
-// 			continue
-// 		}
+	for _, w := range c.WorkerPools {
+		if !dup[w.Name] {
+			dup[w.Name] = true
+			continue
+		}
 
-// 		// It is duplicated.
-// 		diagnostics = append(diagnostics, &hcl.Diagnostic{
-// 			Severity: hcl.DiagError,
-// 			Summary:  "Worker pool names should be unique",
-// 			Detail:   fmt.Sprintf("Worker pool '%v' is duplicated", w.Name),
-// 		})
-// 	}
+		// It is duplicated.
+		diagnostics = append(diagnostics, &hcl.Diagnostic{
+			Severity: hcl.DiagError,
+			Summary:  "Worker pool names should be unique",
+			Detail:   fmt.Sprintf("Worker pool '%v' is duplicated", w.Name),
+		})
+	}
 
-// 	return diagnostics
-// }
+	return diagnostics
+}
 
-// // Meta is part of Platform interface and returns common information about the platform configuration.
-// func (c *config) Meta() platform.Meta {
-// 	nodes := 0
-// 	for _, workerpool := range c.WorkerPools {
-// 		nodes += workerpool.Count
-// 	}
+func renderRootModule(conf *Config) (string, error) {
+	t, err := template.New("rootModule").Parse(terraformConfigTmpl)
+	if err != nil {
+		return "", fmt.Errorf("parsing template: %v", err)
+	}
 
-// 	return platform.Meta{
-// 		AssetDir:      c.AssetDir,
-// 		ExpectedNodes: nodes,
-// 		Managed:       true,
-// 	}
-// }
+	platform.AppendVersionTag(&conf.Tags)
 
-// // Apply creates AKS infrastructure via Terraform.
-// func (c *config) Apply(ex *terraform.Executor) error {
-// 	if err := c.Initialize(ex); err != nil {
-// 		return err
-// 	}
+	var rendered bytes.Buffer
+	if err := t.Execute(&rendered, conf); err != nil {
+		return "", fmt.Errorf("rendering template: %v", err)
+	}
 
-// 	return ex.Apply()
-// }
-
-// // Destroy destroys AKS infrastructure via Terraform.
-// func (c *config) Destroy(ex *terraform.Executor) error {
-// 	if err := c.Initialize(ex); err != nil {
-// 		return err
-// 	}
-
-// 	return ex.Destroy()
-// }
-
-// // Initialize creates Terrafrom files required for AKS.
-// func (c *config) Initialize(ex *terraform.Executor) error {
-// 	assetDir, err := homedir.Expand(c.AssetDir)
-// 	if err != nil {
-// 		return err
-// 	}
-
-// 	terraformRootDir := terraform.GetTerraformRootDir(assetDir)
-
-// 	return createTerraformConfigFile(c, terraformRootDir)
-// }
-
-// // createTerraformConfigFiles create Terraform config files in given directory.
-// func createTerraformConfigFile(cfg *config, terraformRootDir string) error {
-// 	t := template.Must(template.New("t").Parse(terraformConfigTmpl))
-
-// 	path := filepath.Join(terraformRootDir, "cluster.tf")
-
-// 	f, err := os.Create(path)
-// 	if err != nil {
-// 		return fmt.Errorf("failed to create file %q: %w", path, err)
-// 	}
-
-// 	platform.AppendVersionTag(&cfg.Tags)
-
-// 	if cfg.ClientSecret == "" {
-// 		cfg.ClientSecret = os.Getenv(clientSecretEnv)
-// 	}
-
-// 	if cfg.SubscriptionID == "" {
-// 		cfg.SubscriptionID = os.Getenv(subscriptionIDEnv)
-// 	}
-
-// 	if cfg.ClientID == "" {
-// 		cfg.ClientID = os.Getenv(clientIDEnv)
-// 	}
-
-// 	if cfg.TenantID == "" {
-// 		cfg.TenantID = os.Getenv(tenantIDEnv)
-// 	}
-
-// 	if err := t.Execute(f, cfg); err != nil {
-// 		return fmt.Errorf("failed to write template to file %q: %w", path, err)
-// 	}
-
-// 	if err := f.Close(); err != nil {
-// 		return fmt.Errorf("failed closing file %q: %w", path, err)
-// 	}
-
-// 	return nil
-// }
+	return rendered.String(), nil
+}

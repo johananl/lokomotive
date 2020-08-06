@@ -20,6 +20,8 @@ import (
 )
 
 const (
+	// AKS represents an AKS cluster.
+	AKS = "aks"
 	// Packet represents a Packet cluster.
 	Packet = "packet"
 )
