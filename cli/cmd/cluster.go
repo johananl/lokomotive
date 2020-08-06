@@ -31,7 +31,9 @@ import (
 	"sigs.k8s.io/yaml"
 
 	"github.com/kinvolk/lokomotive/pkg/assets"
+	"github.com/kinvolk/lokomotive/pkg/backend"
 	"github.com/kinvolk/lokomotive/pkg/backend/local"
+	"github.com/kinvolk/lokomotive/pkg/backend/s3"
 	"github.com/kinvolk/lokomotive/pkg/components/util"
 	"github.com/kinvolk/lokomotive/pkg/config"
 	"github.com/kinvolk/lokomotive/pkg/platform"
@@ -63,33 +65,17 @@ func initialize(ctxLogger *logrus.Entry) (*config.Config, platform.Cluster, *ter
 
 	// Construct a Cluster.
 	c := createCluster(ctxLogger, cc)
+	if err := c.Validate(); err != nil {
+		ctxLogger.Fatalf("Cluster config validation failed: %v", err)
+	}
 
-	// TODO: Refactor backend generation. We can probably render the backend config as part of the
-	// Terraform root module and get rid of the specialized backend-related functions.
-	// Get the configured backend for the cluster.
-	b, diags := getConfiguredBackend(cc)
-	// TODO: Deduplicate error checking.
-	if diags.HasErrors() {
-		for _, diagnostic := range diags {
-			ctxLogger.Error(diagnostic.Error())
+	var renderedBackend string
+	if cc.RootConfig.Backend != nil {
+		b := createBackend(ctxLogger, cc)
+		if err := b.Validate(); err != nil {
+			ctxLogger.Fatalf("Backend config validation failed: %v", err)
 		}
-		ctxLogger.Fatal("Errors found while loading cluster configuration")
-	}
-
-	// Use a local backend if no backend is configured.
-	if b == nil {
-		b = local.NewLocalBackend()
-	}
-
-	// Validate backend configuration.
-	if err := b.Validate(); err != nil {
-		ctxLogger.Fatalf("Failed to validate backend configuration: %v", err)
-	}
-
-	// Render backend configuration.
-	renderedBackend, err := b.Render()
-	if err != nil {
-		ctxLogger.Fatalf("Failed to render backend configuration file: %v", err)
+		renderedBackend = b.String()
 	}
 
 	assetDir, err := homedir.Expand(c.AssetDir())
@@ -111,15 +97,9 @@ func initialize(ctxLogger *logrus.Entry) (*config.Config, platform.Cluster, *ter
 	// Create backend file only if the backend rendered string isn't empty.
 	if len(strings.TrimSpace(renderedBackend)) > 0 {
 		path := filepath.Join(terraformRootDir, "backend.tf")
-		content := fmt.Sprintf("terraform {%s}\n", renderedBackend)
-
-		if err := writeToFile(path, content); err != nil {
+		if err := writeToFile(path, renderedBackend); err != nil {
 			ctxLogger.Fatalf("Failed to write backend file %q to disk: %v", path, err)
 		}
-	}
-
-	if err := c.Validate(); err != nil {
-		ctxLogger.Fatalf("Cluster config validation failed: %v", err)
 	}
 
 	// Extract control plane chart files to cluster assets directory.
@@ -190,6 +170,49 @@ func createCluster(logger *logrus.Entry, config *config.Config) platform.Cluster
 	// TODO: Add all platforms.
 
 	logger.Fatalf("Unknown platform %q", p)
+
+	return nil
+}
+
+// createBackend constructs a Backend based on the provided cluster config and returns a pointer to
+// it. If a backend with the provided name doesn't exist, an error is returned.
+func createBackend(logger *logrus.Entry, config *config.Config) backend.Backend {
+	bn := config.RootConfig.Backend.Name
+
+	switch bn {
+	case backend.Local:
+		bc, diags := local.NewConfig(&config.RootConfig.Backend.Config, config.EvalContext)
+		if diags.HasErrors() {
+			for _, diagnostic := range diags {
+				logger.Error(diagnostic.Error())
+			}
+			logger.Fatal("Errors found while loading backend configuration")
+		}
+
+		b, err := local.NewBackend(bc)
+		if err != nil {
+			logger.Fatalf("Error constructing backend: %v", err)
+		}
+
+		return b
+	case backend.S3:
+		bc, diags := s3.NewConfig(&config.RootConfig.Backend.Config, config.EvalContext)
+		if diags.HasErrors() {
+			for _, diagnostic := range diags {
+				logger.Error(diagnostic.Error())
+			}
+			logger.Fatal("Errors found while loading backend configuration")
+		}
+
+		b, err := s3.NewBackend(bc)
+		if err != nil {
+			logger.Fatalf("Error constructing backend: %v", err)
+		}
+
+		return b
+	}
+
+	logger.Fatalf("Unknown backend %q", bn)
 
 	return nil
 }
