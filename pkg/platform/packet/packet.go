@@ -209,15 +209,15 @@ func (c *Cluster) Validate() error {
 			"either specify AuthToken or use the PACKET_AUTH_TOKEN environment variable")
 	}
 
-	if err := c.config.DNS.Validate(); err != nil {
-		return fmt.Errorf("parsing DNS configuration failed: %v", err)
-	}
-
 	return nil
 }
 
 // NewCluster constructs a Cluster based on the provided config and returns a pointer to it.
 func NewCluster(c *Config) (*Cluster, error) {
+	if err := c.DNS.Validate(); err != nil {
+		return nil, fmt.Errorf("validating DNS configuration: %v", err)
+	}
+
 	rendered, err := renderRootModule(c)
 	if err != nil {
 		return nil, fmt.Errorf("rendering root module: %v", err)

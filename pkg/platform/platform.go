@@ -75,7 +75,11 @@ type Cluster interface {
 	// TerraformRootModule returns a string representing the contens of the root Terraform module
 	// which should be used for cluster operations.
 	TerraformRootModule() string
-	// Validate validates the cluster configuration.
+	// Validate ensures any runtime conditions required for managing a cluster are met. An example
+	// is checking that an environment variable is set and/or has a valid value.
+	//
+	// Cluster configuration validation should NOT be done here but rather when initializing the
+	// concrete Cluster struct.
 	Validate() error
 }
 
