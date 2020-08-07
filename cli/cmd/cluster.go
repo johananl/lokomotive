@@ -67,6 +67,24 @@ func initialize(ctxLogger *logrus.Entry) (*config.Config, platform.Cluster, *ter
 	// Construct a Cluster.
 	c := createCluster(ctxLogger, cc)
 
+	assetDir, err := homedir.Expand(c.AssetDir())
+	if err != nil {
+		ctxLogger.Fatalf("Error expanding path: %v", err)
+	}
+
+	// Write Terraform modules to disk.
+	terraformModuleDir := filepath.Join(assetDir, "lokomotive-kubernetes")
+	if err := assets.Extract(assets.TerraformModulesSource, terraformModuleDir); err != nil {
+		ctxLogger.Fatalf("Writing Terraform files to disk: %v", err)
+	}
+
+	// Create Terraform root directory.
+	terraformRootDir := filepath.Join(assetDir, "terraform")
+	if err := os.MkdirAll(terraformRootDir, 0755); err != nil {
+		ctxLogger.Fatalf("Creating Terraform root directory at %q: %v", terraformRootDir, err)
+	}
+
+	// Render backend configuration.
 	var renderedBackend string
 	if cc.RootConfig.Backend != nil {
 		b := createBackend(ctxLogger, cc)
@@ -76,31 +94,15 @@ func initialize(ctxLogger *logrus.Entry) (*config.Config, platform.Cluster, *ter
 		renderedBackend = b.String()
 	}
 
-	assetDir, err := homedir.Expand(c.AssetDir())
-	if err != nil {
-		ctxLogger.Fatalf("Error expanding path: %v", err)
-	}
-
-	terraformModuleDir := filepath.Join(assetDir, "lokomotive-kubernetes")
-	if err := assets.Extract(assets.TerraformModulesSource, terraformModuleDir); err != nil {
-		ctxLogger.Fatalf("Writing Terraform files to disk: %v", err)
-	}
-
-	// Ensure Terraform root directory exists.
-	terraformRootDir := filepath.Join(assetDir, "terraform")
-	if err := os.MkdirAll(terraformRootDir, 0755); err != nil {
-		ctxLogger.Fatalf("Creating Terraform root directory at %q: %v", terraformRootDir, err)
-	}
-
-	// Create backend file only if the backend rendered string isn't empty.
+	// Create backend file if the backend configuration isn't empty.
 	if len(strings.TrimSpace(renderedBackend)) > 0 {
 		path := filepath.Join(terraformRootDir, "backend.tf")
-		if err := writeToFile(path, renderedBackend); err != nil {
+		if err := ioutil.WriteFile(path, []byte(renderedBackend), 0644); err != nil {
 			ctxLogger.Fatalf("Failed to write backend file %q to disk: %v", path, err)
 		}
 	}
 
-	// Extract control plane chart files to cluster assets directory.
+	// Write control plane chart files to disk.
 	for _, chart := range c.ControlPlaneCharts() {
 		src := filepath.Join(assets.ControlPlaneSource, chart)
 		dst := filepath.Join(assetDir, "cluster-assets", "charts", "kube-system", chart)
@@ -109,8 +111,9 @@ func initialize(ctxLogger *logrus.Entry) (*config.Config, platform.Cluster, *ter
 		}
 	}
 
+	// Write Terraform root module to disk.
 	path := filepath.Join(terraformRootDir, "cluster.tf")
-	if err := writeToFile(path, c.TerraformRootModule()); err != nil {
+	if err := ioutil.WriteFile(path, []byte(c.TerraformRootModule()), 0644); err != nil {
 		ctxLogger.Fatalf("Failed to write Terraform root module %q to disk: %v", path, err)
 	}
 
@@ -123,6 +126,7 @@ func initialize(ctxLogger *logrus.Entry) (*config.Config, platform.Cluster, *ter
 		ctxLogger.Fatalf("Failed to create Terraform executor: %v", err)
 	}
 
+	// Execute `terraform init`.
 	if err := ex.Init(); err != nil {
 		ctxLogger.Fatalf("Failed to initialize Terraform: %v", err)
 	}

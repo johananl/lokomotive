@@ -17,7 +17,6 @@ package cmd
 import (
 	"fmt"
 	"io/ioutil"
-	"os"
 
 	"github.com/mitchellh/go-homedir"
 	"github.com/pkg/errors"
@@ -166,23 +165,4 @@ func verifyCluster(kubeconfigPath string, expectedNodes int) error {
 	}
 
 	return install.Verify(cluster)
-}
-
-// writeToFile creates a file at the provided path and writes the provided content to it.
-func writeToFile(path string, content string) error {
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("creating file %q: %v", path, err)
-	}
-	defer f.Close()
-
-	if _, err = f.WriteString(content); err != nil {
-		return fmt.Errorf("writing to file %q: %v", path, err)
-	}
-
-	if err = f.Sync(); err != nil {
-		return fmt.Errorf("flushing data to file %q: %v", path, err)
-	}
-
-	return nil
 }
