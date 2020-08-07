@@ -22,6 +22,8 @@ import (
 const (
 	// AKS represents an AKS cluster.
 	AKS = "aks"
+	// AWS represents an AWS cluster.
+	AWS = "aws"
 	// Packet represents a Packet cluster.
 	Packet = "packet"
 )
