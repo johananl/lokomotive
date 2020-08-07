@@ -159,10 +159,6 @@ func (c *Cluster) TerraformRootModule() string {
 	return c.rootModule
 }
 
-func (c *Cluster) Validate() error {
-	return nil
-}
-
 // NewCluster constructs a Cluster based on the provided config and returns a pointer to it.
 func NewCluster(c *Config) (*Cluster, error) {
 	rendered, err := renderRootModule(c)

@@ -66,9 +66,6 @@ func initialize(ctxLogger *logrus.Entry) (*config.Config, platform.Cluster, *ter
 
 	// Construct a Cluster.
 	c := createCluster(ctxLogger, cc)
-	if err := c.Validate(); err != nil {
-		ctxLogger.Fatalf("Cluster config validation failed: %v", err)
-	}
 
 	var renderedBackend string
 	if cc.RootConfig.Backend != nil {

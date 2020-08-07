@@ -203,17 +203,13 @@ func (c *Cluster) TerraformRootModule() string {
 	return c.rootModule
 }
 
-func (c *Cluster) Validate() error {
-	if c.config.AuthToken == "" && os.Getenv("PACKET_AUTH_TOKEN") == "" {
-		return fmt.Errorf("cannot find the Packet authentication token:\n" +
+// NewCluster constructs a Cluster based on the provided config and returns a pointer to it.
+func NewCluster(c *Config) (*Cluster, error) {
+	if c.AuthToken == "" && os.Getenv("PACKET_AUTH_TOKEN") == "" {
+		return nil, fmt.Errorf("cannot find the Packet authentication token:\n" +
 			"either specify AuthToken or use the PACKET_AUTH_TOKEN environment variable")
 	}
 
-	return nil
-}
-
-// NewCluster constructs a Cluster based on the provided config and returns a pointer to it.
-func NewCluster(c *Config) (*Cluster, error) {
 	if err := c.DNS.Validate(); err != nil {
 		return nil, fmt.Errorf("validating DNS configuration: %v", err)
 	}
