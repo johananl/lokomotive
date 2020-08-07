@@ -24,6 +24,8 @@ const (
 	AKS = "aks"
 	// AWS represents an AWS cluster.
 	AWS = "aws"
+	// BareMetal represents a bare metal cluster.
+	BareMetal = "baremetal"
 	// Packet represents a Packet cluster.
 	Packet = "packet"
 )
