@@ -25,6 +25,7 @@ import (
 	"github.com/hashicorp/hcl/v2"
 	"github.com/hashicorp/hcl/v2/gohcl"
 	"github.com/kinvolk/lokomotive/pkg/platform"
+	"github.com/kinvolk/lokomotive/pkg/terraform"
 )
 
 const (
@@ -146,9 +147,9 @@ func (c *Cluster) Nodes() int {
 	return nodes
 }
 
-func (c *Cluster) TerraformExecutionPlan() []platform.TerraformExecutionStep {
-	return []platform.TerraformExecutionStep{
-		platform.TerraformExecutionStep{
+func (c *Cluster) TerraformExecutionPlan() []terraform.ExecutionStep {
+	return []terraform.ExecutionStep{
+		terraform.ExecutionStep{
 			Description: "Create infrastructure",
 			Args:        []string{"apply", "-auto-approve"},
 		},

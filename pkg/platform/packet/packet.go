@@ -29,6 +29,7 @@ import (
 	"github.com/kinvolk/lokomotive/pkg/dns"
 	"github.com/kinvolk/lokomotive/pkg/oidc"
 	"github.com/kinvolk/lokomotive/pkg/platform"
+	"github.com/kinvolk/lokomotive/pkg/terraform"
 )
 
 type nodeRole int
@@ -155,11 +156,11 @@ func (c *Cluster) Nodes() int {
 	return nodes
 }
 
-func (c *Cluster) TerraformExecutionPlan() []platform.TerraformExecutionStep {
+func (c *Cluster) TerraformExecutionPlan() []terraform.ExecutionStep {
 	// DNS provider isn't "manual" - create all infrastructure in a single step.
 	if c.config.DNS.Provider != dns.Manual {
-		return []platform.TerraformExecutionStep{
-			platform.TerraformExecutionStep{
+		return []terraform.ExecutionStep{
+			terraform.ExecutionStep{
 				Description: "Create infrastructure",
 				Args:        []string{"apply", "-auto-approve"},
 			},
@@ -168,16 +169,16 @@ func (c *Cluster) TerraformExecutionPlan() []platform.TerraformExecutionStep {
 
 	// DNS provider is "manual" - create infrastructure in multiple steps to allow prompting the
 	// user for manual DNS creation.
-	plan := []platform.TerraformExecutionStep{}
+	plan := []terraform.ExecutionStep{}
 
 	controllers := fmt.Sprintf("-target=module.packet-%s.packet_device.controllers",
 		c.config.ClusterName)
-	plan = append(plan, platform.TerraformExecutionStep{
+	plan = append(plan, terraform.ExecutionStep{
 		Description: "Create controllers",
 		Args:        []string{"apply", "-auto-approve", controllers},
 	})
 
-	plan = append(plan, platform.TerraformExecutionStep{
+	plan = append(plan, terraform.ExecutionStep{
 		Description: "Create DNS records",
 		Args:        []string{"apply", "-auto-approve", "-target=module.dns"},
 	})
@@ -185,12 +186,12 @@ func (c *Cluster) TerraformExecutionPlan() []platform.TerraformExecutionStep {
 	// Run `terraform refresh`. This is required in order to make the outputs from the previous
 	// apply operations available.
 	// TODO: Likely caused by https://github.com/hashicorp/terraform/issues/23158.
-	plan = append(plan, platform.TerraformExecutionStep{
+	plan = append(plan, terraform.ExecutionStep{
 		Description: "Refresh Terraform",
 		Args:        []string{"refresh"},
 	})
 
-	plan = append(plan, platform.TerraformExecutionStep{
+	plan = append(plan, terraform.ExecutionStep{
 		Description:      "Complete infrastructure creation",
 		Args:             []string{"apply", "-auto-approve"},
 		PreExecutionHook: dns.ManualConfigPrompt(&c.config.DNS),
